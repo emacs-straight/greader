@@ -193,22 +193,14 @@ if set to t, when you call function `greader-read', that function sets a
     (define-key map (kbd "C-r f")   #'greader-get-attributes)
     (define-key map (kbd "C-r b")   #'greader-change-backend)
     map))
-
-(defvar greader-prefix-map
-  ;; FIXME: This var/keymap seems to be unused.
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-r") greader-mode-map)
-    map))
-
 (defvar greader-reading-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "SPC") #'greader-stop)
-    (define-key map (kbd "p")   #'greader-toggle-punctuation)
-    (define-key map (kbd ".")   #'greader-stop-with-timer)
-    (define-key map (kbd "+")   #'greader-inc-rate)
-    (define-key map (kbd "-")   #'greader-dec-rate)
+    (define-key map (kbd "C-r SPC") #'greader-stop)
+    (define-key map (kbd "C-r p")   #'greader-toggle-punctuation)
+    (define-key map (kbd "C-r .")   #'greader-stop-with-timer)
+    (define-key map (kbd "c-r +")   #'greader-inc-rate)
+    (define-key map (kbd "c-r -")   #'greader-dec-rate)
     map))
-
 (defvar-local greader--reading nil
   "If non-nil, `greader-reading-map' is active.")
 
@@ -220,13 +212,9 @@ if set to t, when you call function `greader-read', that function sets a
   (cond
    (greader-mode
     (add-to-list 'minor-mode-map-alist
-                 `'(greader--reading . ,greader-reading-map))
-    (if greader-auto-tired-mode
-	(greader-auto-tired-mode-setup)))
-   (greader-auto-tired-timer
-    (cancel-timer greader-auto-tired-timer)
-    (greader-toggle-timer)))
-  (greader-load-backends))
+                 `(greader--reading . ,greader-reading-map))
+    (greader-load-backends))))
+
 ;;;code
 (defun greader-set-register ()
   "Set the `?G' register to the point in current buffer."
