@@ -494,17 +494,23 @@ if `GOTO-MARKER' is t and if you pass a prefix to this
     (insert arg)))
 
 (defun greader-forward-sentence ()
-  (forward-sentence))
+  (let ((result (greader-call-backend 'next-text)))
+    (if (not (equal result 'not-implemented))
+	result
+      (forward-sentence))))
 
 (defun greader-get-sentence ()
-  (let ((sentence-start (make-marker)))
-    (setq sentence-start (point))
-    (save-excursion
-      (when (not (eobp))
-	(forward-sentence))
-      (if (> (point) sentence-start)
-	  (buffer-substring-no-properties sentence-start (point))
-	nil))))
+  (let ((result (greader-call-backend 'get-text)))
+    (if (stringp result)
+	result
+      (let ((sentence-start (make-marker)))
+	(setq sentence-start (point))
+	(save-excursion
+	  (when (not (eobp))
+	    (forward-sentence))
+	  (if (> (point) sentence-start)
+	      (string-trim (buffer-substring-no-properties sentence-start (point)) "[ \t\n\r]+")
+	    nil))))))
 
 (defun greader-sentence-at-point ()
   "Get sentence starting from point."
@@ -523,7 +529,13 @@ LANG must be in ISO code, for example 'en' for english or 'fr' for
 french.  This function set the language of tts local for current
 buffer, so if you want to set it globally, please use 'm-x
 `customize-option' <RET> greader-language <RET>'."
-  (interactive "sset language to:")
+  (interactive
+   (list
+    (let (result)
+      (setq result (greader-call-backend 'set-voice nil))
+      (when (equal result 'not-implemented)
+	(setq result (read-string "Set language to: ")))
+      result)))
   (greader-call-backend 'lang lang))
 (defun greader-set-punctuation (flag)
   "Set punctuation to FLAG."
