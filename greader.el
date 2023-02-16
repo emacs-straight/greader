@@ -214,10 +214,9 @@ if set to t, when you call function `greader-read', that function sets a
     (define-key map (kbd ".")   #'greader-stop-with-timer)
     (define-key map (kbd "+")   #'greader-inc-rate)
     (define-key map (kbd "-")   #'greader-dec-rate)
+    (define-key map (kbd "<left>")   #'greader-backward)
+    (define-key map (kbd "<right>")   #'greader-forward)
     map))
-
-(defvar-local greader--reading nil
-  "If non-nil, `greader-reading-map' is active.")
 
 					;###autoload
 (define-minor-mode greader-mode
@@ -490,19 +489,22 @@ if `GOTO-MARKER' is t and if you pass a prefix to this
 
 (defun greader-debug (arg)
   "Used to get some fast debugging.
-  Argument ARG is not used."
+Argument ARG is not used."
   (save-current-buffer
     (get-buffer-create greader-debug-buffer)
     (set-buffer greader-debug-buffer)
     (insert arg)))
 
 (defun greader-forward-sentence ()
+  "Move the point to next sentence."
   (let ((result (greader-call-backend 'next-text)))
     (if (not (equal result 'not-implemented))
 	result
       (forward-sentence))))
 
 (defun greader-get-sentence ()
+  "Get current sentence.
+If at end of buffer, nil is returned."
   (let ((result (greader-call-backend 'get-text)))
     (if (stringp result)
 	result
@@ -531,7 +533,7 @@ Optional argument STRING contains the string passed to
 LANG must be in ISO code, for example `en' for english or `fr' for
 french.  This function sets the language of tts local for current
 buffer, so if you want to set it globally, please use `m-x
-customize-option <RET> greader-language <RET>'."
+`customize-option' <RET> greader-language <RET>'."
   (interactive
    (list
     (let (result)
@@ -835,11 +837,15 @@ If prefix, it will be used to decrement  rate."
   (greader-read))
 
 (defun greader-sentence-needs-dehyphenation (str)
+  "Return t if there are lines broken by hyphens in STR, nil otherwise."
   (if (string-match greader-hyphen-regex str)
       t
     nil))
 
 (defun greader-dehyphenate (sentence)
+  "Join lines broken by hyphens in SENTENCE.
+It is possible to customize what this function considers to be an
+  hyphen, by setting `greader-hyphen-regex'."
   (replace-regexp-in-string greader-hyphen-regex "" sentence))
 
 (defun greader-get-attributes ()
@@ -848,7 +854,7 @@ If prefix, it will be used to decrement  rate."
   (print (text-properties-at (point))))
 
 (defcustom greader-compile-command "--compile="
-  "espeak-ng parameter to compile a lang."
+  "Espeak-ng parameter to compile a lang."
   :tag "greader compile command"
   :type 'string)
 
@@ -861,27 +867,29 @@ In general you should specify an alternative path for espeak voice
 
 					;###autoload
 
+(defcustom greader-compile-dictsource nil
+  "Location of espeak dictionary source data.
+You must configure this variable in order to use
+  `greader-compile-mode'."
+  :tag "greader compile source dictionary directory"
+  :type '(repeat :tag "directory:" string))
+
 (define-minor-mode greader-compile-mode
-  "Questo minor-mode globale di greader permette il salvataggio di un
-file dizionario di espeak-ng e la successiva compilazione della voce
-corrispondente in una sola operazione.
-In alcuni casi, la directory in cui espeak-ng conserva i dati relativi
-alle lingue non è scrivibile dall'utente normale, in questo caso, al
-salvataggio del file, verrà chiesto d'inserire la password di
-amministratore.
-Verrà chiesto anche se si vorrà salvare la password nel database
-auth-info.
-Per disabilitare quest'ultima domanda, configurare la variabile
-`greader-compile-ask-for-authinfo'
-Il valore predefinito è off, quindi la password di amministratore
-verrà chiesta sempre."
+  "Espeak voice definition and compilation mode.
+This global minor mode of greader allows saving of an
+espeak-ng dictionary file and subsequent correspondent voice compilation
+in one shot.
+In some cases, the directory where espeak-ng keeps its data
+is not writable by the normal user, in this case, when
+saving the file, you will be asked to enter your password
+administrator."
   :global t
 
   (if greader-compile-mode
       (progn
 	(unless greader-compile-dictsource
 	  (error "Please set or customize `greader-compile-dictsource'
-    to define espeak-ng dictionary source location."))
+    to define espeak-ng dictionary source location"))
 	(add-hook 'after-save-hook 'greader-check-visited-file)
 	(message "greader-compile minor mode enabled"))
     (when (member 'greader-check-visited-file after-save-hook)
@@ -890,21 +898,22 @@ verrà chiesta sempre."
 
 (defvar greader-compile-history nil)
 (defun greader-compile (&optional lang)
-  "La funzione greader-compile, se chiamata interattivamente, compila le
-definizioni di espeak-ng per una determinata lingua.
-In modo predefinito, greader-compile deduce la lingua dalle prime due
-lettere del file che si sta visitando.
-Se il suo parametro LANG è `non-nil', la funzione chiederà di
-specificare la lingua da compilare, ignorando il nome del file attuale
-ma proponendolo come default.
-In caso la lingua specificata non dovesse sembrare compatibile con
-l'ambiente del buffer, questa funzione chiederà conferma prima di
-procedere.
-Avviso importante: il parametro serve esclusivamente per una chiamata
-interattiva, dato che la funzione utilizza il minibuffer per ottenere
-la lingua.
-Se non viene chiamata interattivamente, non passarle argomenti, la
-funzione è progettata specificamente per essere eseguita da un hook."
+  "Compile espeak voice for a given LANG.
+when called interactively, compile the
+espeak-ng definitions for a given language.
+By default, greader-compile infers the language from the first two
+letters of the file you are visiting.
+If its LANG parameter is `non-nil', the function will ask for
+specifying the language to compile, ignoring the current file name
+but proposing it as default.
+In case the specified language does not seem compatible with
+buffer environment, this function will ask for confirmation before
+proceed.
+Important notice: The parameter is only for an interactive call
+since the function uses the minibuffer to get
+the language.
+If it is not called interactively, pass no arguments to it, the
+function is specifically designed to be executed by a hook."
 
   (interactive "P")
 
@@ -939,12 +948,17 @@ funzione è progettata specificamente per essere eseguita da un hook."
        :command command))))
 
 (defun greader-compile--filter (&optional process str)
+  "Filter process for sudo."
   (when (string-match "password" str)
     (process-send-string process (concat (read-passwd str) "\n")))
   (when (string-match "error" str)
     (error "%s" str)))
 
 (defun greader-compile-guess-lang ()
+  "Internal use.
+This function return t if the file associated with current buffer
+  seems to be an espeak dictionary definition file."
+
   (when (buffer-file-name)
     (let*
 	((lang (buffer-file-name))
@@ -959,26 +973,29 @@ funzione è progettata specificamente per essere eseguita da un hook."
 	    (substring lang start end))
 	nil))))
 
-(defcustom greader-compile-dictsource nil
-  "Location of espeak dictionary source data.
-You must configure this variable in order to use
-  `greader-compile-mode'."
-  :tag "greader compile source dictionary directory"
-  :type '(repeat :tag "directory:" string))
-
 (defun greader-check-visited-file ()
+  "Internal use.
+Hook for `after-save-hook'."
   (and
    (member default-directory greader-compile-dictsource)
    (greader-compile-guess-lang)
    (greader-compile)))
 
 (defcustom greader-compile-default-source "extra"
-  "dictsource file suffix to use when `greader-compile-at-point' is called.
-If `nil', you can not use `greader-compile-at-point'."
+  "Dict source file suffix to use when `greader-compile-at-point' is called.
+If nil, you can not use `greader-compile-at-point'."
   :tag "greader compile default dictionary source file"
   :type 'string)
 
+(defvar greader-espeak-language)
 (defun greader-compile-at-point (&optional src dst)
+  "Add a word to the espeak dictionary definition.
+When called interactively and point is on a word, this function asks
+  for the definition, assuming you want to define current word.
+If you want to be asked about the word to define, call this command
+  with prefix.
+When called from a function, you should specify SRC and DST, even if
+  SRC and DST are declared as optional."
   (interactive "P")
   (unless greader-compile-default-source
     (error "You must set or customize `greader-compile-default-source'"))
@@ -1008,14 +1025,68 @@ If `nil', you can not use `greader-compile-at-point'."
 	(greader-compile)))))
 
 (defun greader-compile-goto-source ()
-  "Visit default dictsource currently used by
-`greader-compile-at-point.'"
-
+  "Visit default dictsource currently used by `greader-compile-at-point'."
   (interactive)
   (if (string-match "/" greader-compile-default-source)
       (find-file greader-compile-default-source)
     (find-file (concat (car greader-compile-dictsource)
 		       greader-espeak-language "_" greader-compile-default-source))))
+
+(defcustom greader-backward-acoustic-feedback nil
+  "If t, when point returns to the end of sentence, plays a beep."
+  :tag "greader backward acoustic feedback"
+  :type 'boolean)
+
+(defcustom greader-backward-seconds 5
+  "Number of seconds to wait before returning at the end of sentence."
+  :tag "greader-backward seconds"
+  :type 'float)
+
+(defvar greader--marker-backward (make-marker))
+
+(defvar greader--timer-backward nil)
+
+(defun greader--forward ()
+  (when (equal
+	 (point) greader--marker-backward)
+    (forward-sentence)
+    (backward-char 2)
+    (when greader-backward-acoustic-feedback
+      (beep))))
+
+(defun greader--set-forward-timer ()
+  (setq greader--timer-backward(run-with-idle-timer greader-backward-seconds nil #'greader--forward)))
+
+(defun greader-backward ()
+  "Restart reading from start of sentence.
+When at start of sentence, this function sets a timer for
+  `greader--set-forward-timer' seconds, and, if the cursor is yet at
+  start of sentence, puts the point at the end.
+So you can use this command like a player, if you press <left> you
+  will ear the start of last read sentence, and if you press again
+  while timer is in effect, you go back by one sentence."
+  (interactive)
+  (when (bobp)
+    (signal 'beginning-of-buffer ()))
+  (when greader--timer-backward
+    (cancel-timer greader--timer-backward)
+    (setq greader--timer-backward nil))
+  (greader-stop)
+  (backward-sentence)
+  (greader-set-register)
+  (setq greader--marker-backward (point))
+  (greader--set-forward-timer)
+  (greader-read))
+
+(defun greader-forward ()
+  "Move point to next sentence and start reading from there."
+  (interactive)
+  (when (eobp)
+    (signal 'end-of-buffer nil))
+  (greader-stop)
+  (greader-forward-sentence)
+  (greader-set-register)
+  (greader-read))
 
 (provide 'greader)
 ;;; greader.el ends here
