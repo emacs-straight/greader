@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.2.1
+;; Version: 0.3.0
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -303,6 +303,61 @@ when the buffer is visiting a file."
   (if greader-auto-bookmark-mode
       (add-hook 'greader-after-stop-hook 'set-bookmark-for-greader)
     (remove-hook 'greader-after-stop-hook 'set-bookmark-for-greader)))
+;; greader-region-mode is a non-interactive minor mode that deals with
+;; read the active region instead of the entire buffer.
+;; The current implementation of greader probably dictates that the
+;; buffer needs to be temporarily narrowed when the region is
+;; active, so that the functions that deal with obtaining the sentences
+;; to read and move the point "believe" that that is all the
+;; buffer to read.
+(defvar greader-start-region nil
+  "start of region.")
+(defvar greader-end-region nil
+  "end of region.")
+
+(defun greader--active-region-p ()
+  "Return t if the region in the current buffer is active.
+Active in this context means that the variables
+  `greader-start-region' and `greader-end-region' are set appropriately."
+  (if (and greader-start-region greader-end-region)
+      t
+    nil))
+
+(defun greader-narrow ()
+  "Narrow current buffer if region is active."
+  (unless (buffer-narrowed-p)
+    (narrow-to-region greader-start-region greader-end-region)))
+
+;; This function widens the buffer, and is added to the
+;; `greader-after-stop-hook' hook by `greader-region-mode'.
+(defun greader-widen ()
+  "Widen buffer and set greader-region variables to nil."
+  (setq greader-start-region nil)
+  (setq greader-end-region nil)
+  (greader-region-mode -1)  
+  (widen))
+
+;; This function places the point at the beginning of the active region.
+(defun greader-set-point-to-start-of-region ()
+  "set the point to the beginning of the active region.
+This only happens if the variables `greader-start-region' and
+`greader-end-region' are set."
+  (when (and greader-start-region greader-end-region)
+    (goto-char greader-start-region)))
+
+(define-minor-mode greader-region-mode
+  "This mode activates when the region is active."
+  :interactive nil
+  (if greader-region-mode
+      (progn
+	(setq greader-start-region (region-beginning))
+	(setq greader-end-region (region-end))
+	(greader-narrow)
+	(add-hook 'greader-after-stop-hook 'greader-widen)
+	(add-hook 'greader-before-finish-hook 'greader-widen)
+	(greader-set-point-to-start-of-region))
+    (remove-hook 'greader-before-finish-hook 'greader-widen)
+    (remove-hook 'greader-after-stop-hook 'greader-widen)))
 
 (defun greader-set-register ()
   "Set the `?G' register to the point in current buffer."
@@ -534,6 +589,10 @@ if `GOTO-MARKER' is t and if you pass a prefix to this
   (cond
    ((and (greader-timer-flag-p) (not (timerp greader-stop-timer)))
     (greader-setup-timers)))
+  (when (region-active-p)
+    (cond
+     ((and (not greader-region-mode) (not (greader--active-region-p)))
+      (greader-region-mode 1))))
   (run-hooks greader-before-get-sentence-functions)
   (let ((chunk (funcall greader-read-chunk-of-text)))
     (if chunk
@@ -637,12 +696,12 @@ buffer, so if you want to set it globally, please use `m-x
   (interactive)
   (if (not (greader-call-backend 'punctuation))
       (progn
-	(greader-stop)
+	(greader-tts-stop)
 	(greader-set-punctuation 'yes)
 	(message "punctuation enabled in current buffer")
 	(greader-read))
     (progn
-      (greader-stop)
+      (greader-tts-stop)
       (greader-set-punctuation 'no)
       (message "punctuation disabled in current buffer")
       (greader-read))))
@@ -908,7 +967,7 @@ If prefix, it will be used to increment by that.  Default is N=10."
   (interactive "P")
   (if (not n)
       (setq n 10))
-  (greader-stop)
+  (greader-tts-stop)
   (greader-set-rate (+ (greader-call-backend 'rate 'value) n))
   (greader-read))
 
@@ -918,7 +977,7 @@ If prefix, it will be used to decrement  rate."
   (interactive "P")
   (if (not n)
       (setq n 10))
-  (greader-stop)
+  (greader-tts-stop)
   (greader-set-rate (- (greader-call-backend 'rate 'value) n))
   (greader-read))
 
@@ -1156,7 +1215,7 @@ So you can use this command like a player, if you press <left> you
   (when greader--timer-backward
     (cancel-timer greader--timer-backward)
     (setq greader--timer-backward nil))
-  (greader-stop)
+  (greader-tts-stop)
   (backward-sentence)
   (greader-set-register)
   (setq greader--marker-backward (point))
@@ -1168,7 +1227,7 @@ So you can use this command like a player, if you press <left> you
   (interactive)
   (when (eobp)
     (signal 'end-of-buffer nil))
-  (greader-stop)
+  (greader-tts-stop)
   (greader-forward-sentence)
   (greader-set-register)
   (greader-read))
