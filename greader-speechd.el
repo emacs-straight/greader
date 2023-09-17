@@ -58,8 +58,8 @@ using `greader-speechd-executable' as basename."
 
 (defun greader-speechd-set-language
     (&optional lang)
-  "Set language 'lang' for speech-dispatcher client.
-if lang is omitted, it looks in variable greader-speechd-language and
+  "Set language LANG for speech-dispatcher client.
+if LANG is omitted, it looks in variable `greader-speechd-language' and
 retrieves the appropriate string used by spd-say or another client
 compatible."
   (if (not lang)
@@ -71,8 +71,7 @@ compatible."
 (defun greader-speechd-set-rate
     (&optional rate)
   "Return parameter suitable for spd-say to set speech rate.
-for further documentation, see the documentation for
-greader-speechd-rate variable."
+for further documentation, see the `greader-speechd-rate' variable."
   (if (not rate)
       (concat "-r " (number-to-string greader-speechd-rate))
     (progn
@@ -81,29 +80,16 @@ greader-speechd-rate variable."
 
 (defun greader-speechd-set-punctuation (&optional punct)
   "Return a suitable parameter to pass to spd-say for setting punctuation level.
-punct must be a numeric value, 0 for no punctuation, 1 for some and 2
+PUNCT must be a numeric value, 0 for no punctuation, 1 for some and 2
 or >2 for all punctuation."
-  (catch 'return
-    (cond
-     ((booleanp punct)
-      (if punct
-	  (progn
-	    (setq-local greader-speechd-punctuation "all")
-	    (throw 'return (concat "-mall")))
-	  (throw 'return greader-speechd-punctuation)))
-     ((numberp punct)
-      (if (= punct 0)
-	  (progn
-	    (setq-local greader-speechd-punctuation "none")
-	    (throw 'return (concat "-mnone"))))
-      (if (= punct 1)
-	  (progn
-	    (setq-local greader-speechd-punctuation "some")
-	    (throw 'return (concat "-msome"))))
-      (if (>= punct 2)
-	  (progn
-	    (setq-local greader-speechd-punctuation "all")
-	    (throw 'return (concat "-mall"))))))))
+  (setq-local greader-speechd-punctuation
+              (pcase punct
+               ('t "all")
+               ('0 "none")
+               ('1 "some")
+               ((and (pred numberp) (pred (<= 2))) "all")
+               (_ (error "Unknown punctuation: %S" punct))))
+  (concat "-m" greader-speechd-punctuation))
 
 (defun greader-speechd-stop ()
   "Stops speech-dispatcher client."

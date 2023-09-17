@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.3.0
+;; Version: 0.4.0
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -62,12 +62,14 @@
 (defvar greader-synth-process nil)
 (require 'seq)
 
-(defvar greader-before-get-sentence-functions nil
-  "List of functions to run before getting a sentence.
+(define-obsolete-variable-alias 'greader-before-get-sentence-functions
+  'greader-before-get-sentence-hook "2023")
+(defvar greader-before-get-sentence-hook nil
+  "Hook run before getting a sentence.
 Functions in this variable don't receive arguments.")
 
 (defvar greader-after-get-sentence-functions nil
-  "Hook after getting a sentence.
+  "Hook run after getting a sentence.
 Functions in this hook take a string as argument, and should modify
   that string that contains the sentence that will be read.
 the function should return modified sentence, or nil if no operation
@@ -76,18 +78,13 @@ the function should return modified sentence, or nil if no operation
 (defun greader--call-functions-after-get-of-sentence (sentence)
   "Call functions in `greader-after-get-sentence-functions'.
 Return SENTENCE, eventually modified by the functions."
-  (if greader-after-get-sentence-functions
-      (progn
-	(let ((result sentence))
-	  (dolist (func greader-after-get-sentence-functions result)
-	    (when (fboundp func)
-	      (setq result (funcall func result))
-	      (unless result
-		(setq result sentence))))
-	  (if (not result)
-	      sentence
-	    result)))
-    sentence))
+  (let ((result sentence))
+    (run-hook-wrapped 'greader-after-get-sentence-functions
+                      (lambda (func)
+                        (when (fboundp func)
+	                  (setq result (or (funcall func result)
+	                                   sentence)))))
+    result))
 
 (defvar greader-before-read-hook nil
   "Code to execute just before start of reading.")
@@ -95,27 +92,21 @@ Return SENTENCE, eventually modified by the functions."
 (defvar greader-after-read-hook nil
   "Execute code just after reading a sentence.")
 
-(defvar greader-before-finish-hook nil
+(define-obsolete-variable-alias 'greader-before-finish-hook
+  'greader-before-finish-functions "2023")
+(defvar greader-before-finish-functions nil
   "Code executed just after finishing reading of buffer.
-Functions in this hook should return non -nil if at least one function
+Functions in this hook should return non-nil if at least one function
   returns non-nil, meaning that reading of buffer continues.
 If all the functions called return nil, reading finishes normally.")
 
 (defun greader--call-before-finish-functions ()
   "Return t if at least one of the function return t.
-If all the functions in the hook return nil, this function return
-  nil."
-  (if greader-before-finish-hook
-      (progn
-	(let ((flag nil) (result nil))
-	  (dolist (func greader-before-finish-hook)
-	    (setq result (funcall func))
-	    (when result
-	      (setq flag t)))
-	  flag))
-    nil))
+If all the functions in the hook return nil, this function return nil."
+  (run-hook-with-args-until-success 'greader-before-finish-functions))
+
 (defvar greader-after-stop-hook nil
-  "The functions in this variable are executed just after tts is stopped.")
+  "Hook run just after tts is stopped.")
 
 (defgroup
   greader
@@ -136,7 +127,7 @@ If all the functions in the hook return nil, this function return
 
 (defcustom
   greader-current-backend
-  'greader-espeak
+  #'greader-espeak
   "Greader back-end to use."
   :tag "greader current back-end"
   :type
@@ -204,9 +195,9 @@ Instead, the sentence will be read completely."
   :tag "enable debug"
   :type 'boolean)
 
-(defcustom   greader-hook nil
-  "Hook ran after mode activation.
-through this hook you can
+(defcustom   greader-hook nil ;; FIXME: Can't see where it's run!
+  "Hook run after mode activation.
+Through this hook you can
 customize your key definitions for greader, for example."
   :tag "greader-mode hook"
   :type 'hook)
@@ -301,8 +292,8 @@ when the buffer is visiting a file."
   :lighter "bk"
   :global t
   (if greader-auto-bookmark-mode
-      (add-hook 'greader-after-stop-hook 'set-bookmark-for-greader)
-    (remove-hook 'greader-after-stop-hook 'set-bookmark-for-greader)))
+      (add-hook 'greader-after-stop-hook #'set-bookmark-for-greader)
+    (remove-hook 'greader-after-stop-hook #'set-bookmark-for-greader)))
 ;; greader-region-mode is a non-interactive minor mode that deals with
 ;; read the active region instead of the entire buffer.
 ;; The current implementation of greader probably dictates that the
@@ -353,11 +344,11 @@ This only happens if the variables `greader-start-region' and
 	(setq greader-start-region (region-beginning))
 	(setq greader-end-region (region-end))
 	(greader-narrow)
-	(add-hook 'greader-after-stop-hook 'greader-widen)
-	(add-hook 'greader-before-finish-hook 'greader-widen)
+	(add-hook 'greader-after-stop-hook #'greader-widen)
+	(add-hook 'greader-before-finish-functions #'greader-widen)
 	(greader-set-point-to-start-of-region))
-    (remove-hook 'greader-before-finish-hook 'greader-widen)
-    (remove-hook 'greader-after-stop-hook 'greader-widen)))
+    (remove-hook 'greader-before-finish-functions #'greader-widen)
+    (remove-hook 'greader-after-stop-hook #'greader-widen)))
 
 (defun greader-set-register ()
   "Set the `?G' register to the point in current buffer."
@@ -377,8 +368,8 @@ This only happens if the variables `greader-start-region' and
     b))
 
 (defun greader-call-backend (command &optional arg)
-  "Call BACKEND passing it COMMAND and ARG.
-\(internal use!\)."
+  "Call backend passing it COMMAND and ARG.
+\(internal use!\)." ;; FIXME: Use "--" in the name, then.
 
   (if arg
       (funcall greader-current-backend command arg)
@@ -391,42 +382,39 @@ This only happens if the variables `greader-start-region' and
 (defvar greader-dissoc-buffer "*Dissociation*")
 (defvar greader-temp-function nil)
 (defun greader-change-backend (&optional backend)
-  "Change BACKEND used for actually read the buffer.
-If backend is
-specified, it changes to backend, else it cycles throwgh available
-backends."
+  "Change backend used for actually read the buffer.
+If BACKEND is non-nil, it changes to BACKEND, else it cycles through
+available backends."
   (interactive
    (list
     (if current-prefix-arg
-	(completing-read"back-end:" (greader--get-backends)))))
-  (if (functionp backend)
-      (if (memq backend greader-backends)
-	  (setq-local greader-current-backend backend)
-	(error "%s" "The function you have specified is not a greader's back-end.")))
-  (if (stringp backend)
-      (progn
-	(let ((result nil))
-	  (dolist (elem greader-backends result)
-	    (if
-		(equal
-		 (get elem 'greader-backend-name) backend)
-		(setq result elem)))
-	  (if result
-	      (setq-local greader-current-backend result)
-	    (error "%s" "the function name you have specified is not a greader's back-end.")))))
-  (if (not backend)
-      (let
-	  ((index (seq-position greader-backends greader-current-backend))
-	   (len (length greader-backends)))
-	(if
-	    (= (+ index 1) len)
-	    (setq-local greader-current-backend (elt greader-backends 0))
-	  (setq-local greader-current-backend (elt greader-backends (+ index 1))))))
-  (message "Current back-end is %s." (get greader-current-backend 'greader-backend-name)))
+	(completing-read "Back-end: " (greader--get-backends)))))
+  (setq-local greader-current-backend
+              (cond
+	       ((functionp backend)
+	        (if (memq backend greader-backends)
+	            backend
+	          (error "Not a greader's back-end: %S" backend)))
+	       ((stringp backend)
+                (let ((result nil))
+                  (dolist (elem greader-backends result)
+	            (if
+	                (equal
+	                 (get elem 'greader-backend-name) backend)
+	                (setq result elem)))
+	          (or result
+	              (user-error "Not a greader's back-end: %S" backend))))
+	       (backend
+	        (error "backend should be a string or a function: %S" backend))
+	       (t
+	        (car (or (cdr (memq greader-current-backend greader-backends))
+	                 greader-backends)))))
+  (message "Current back-end is %s"
+           (get greader-current-backend 'greader-backend-name)))
 
 (defun greader-load-backends ()
   "Load backends taken from `greader-backends'."
-  (mapcar 'require greader-backends))
+  (mapcar #'require greader-backends))
 
 (defun greader-read-asynchronous (txt)
   "Read the text given in TXT."
@@ -436,16 +424,14 @@ backends."
   (greader-build-args)
   (if (and txt (greader-sentence-needs-dehyphenation txt))
       (setq txt (greader-dehyphenate txt)))
-  (let (backend text)
-    (setq text (concat text " "))
-    (setq text (concat text txt))
-    (setq txt text)
-    (setq backend (append greader-backend `(,txt) backend))
-    (and (stringp txt) (setq-local greader-synth-process (make-process
-							  :name "greader-backend"
-							  :sentinel 'greader-action
-							  :filter 'greader-process-filter
-							  :command backend)))
+  (let* ((txt (concat " " txt))
+         (backend (append greader-backend `(,txt))))
+    (and (stringp txt)
+	 (setq-local greader-synth-process (make-process
+				            :name "greader-backend"
+				            :sentinel #'greader-action
+				            :filter #'greader-process-filter
+				            :command backend)))
     (if greader-debug
 	(progn
 	  (set-process-buffer greader-synth-process greader-debug-buffer)
@@ -469,19 +455,18 @@ backends."
       (progn
 	(greader-debug "greader-action entered.\n")
 	(greader-debug (format "event: %S\n" event))))
-  (when greader-backend-action
-    (funcall greader-backend-action process event)))
+  (funcall greader-backend-action process event))
 
 (defun greader-tts-stop ()
   "Stop reading of current buffer."
-  (set-process-sentinel greader-synth-process 'greader--default-action)
+  (set-process-sentinel greader-synth-process #'greader--default-action)
   (if
       (not
        (eq
 	(greader-call-backend 'stop) 'not-implemented))
       (greader-call-backend 'stop))
   (delete-process greader-synth-process)
-  (setq-local greader-backend-action 'greader--default-action))
+  (setq-local greader-backend-action #'greader--default-action))
 
 (defun greader--default-action (&optional _process event)
   "Internal use.
@@ -593,7 +578,7 @@ if `GOTO-MARKER' is t and if you pass a prefix to this
     (cond
      ((and (not greader-region-mode) (not (greader--active-region-p)))
       (greader-region-mode 1))))
-  (run-hooks greader-before-get-sentence-functions)
+  (run-hooks greader-before-get-sentence-hook)
   (let ((chunk (funcall greader-read-chunk-of-text)))
     (if chunk
 	(progn
@@ -607,7 +592,7 @@ if `GOTO-MARKER' is t and if you pass a prefix to this
 	  (setq-local greader-backend-action #'greader-next-action)
 	  (greader-read-asynchronous chunk))
       (progn
-	(setq-local greader-backend-action 'greader--default-action)
+	(setq-local greader-backend-action #'greader--default-action)
 	(greader-set-greader-keymap)
 	(unless (greader--call-before-finish-functions)
 	  (greader-read-asynchronous ". end"))))))
@@ -644,7 +629,7 @@ Argument ARG is not used."
 (defun greader-get-sentence ()
   "Get current sentence.
 Before returning sentence, this function runs
-`greader-before-get-sentence-functions'
+`greader-before-get-sentence-hook'
 If at end of buffer, nil is returned."
   (let ((result (greader-call-backend 'get-text)))
     (if (stringp result)
@@ -671,17 +656,16 @@ Optional argument STRING contains the string passed to
 
 (defun greader-set-language (lang)
   "Set language of tts.
-LANG must be in ISO code, for example `en' for english or `fr' for
-french.  This function sets the language of tts local for current
-buffer, so if you want to set it globally, please use `m-x
-`customize-option' <RET> greader-language <RET>'."
+LANG must be in ISO code, for example `en' for English or `fr' for
+French.  This function sets the language of tts local for current
+buffer, so if you want to set it globally, please use
+`M-x customize-option RET greader-language RET'."
   (interactive
    (list
-    (let (result)
-      (setq result (greader-call-backend 'set-voice nil))
-      (when (equal result 'not-implemented)
-	(setq result (read-string "Set language to: ")))
-      result)))
+    (let ((result (greader-call-backend 'set-voice nil)))
+      (if (equal result 'not-implemented)
+	  (read-string "Set language to: ")
+	result))))
   (greader-call-backend 'lang lang))
 (defun greader-set-punctuation (flag)
   "Set punctuation to FLAG."
@@ -750,17 +734,16 @@ Optional argument TIMER-IN-MINS timer in minutes (integer)."
 
 (defun greader-timer-flag-p ()
   "Not yet documented."
-  (if greader-timer-flag
-      t
-    nil))
+  greader-timer-flag)
 
 (defun greader-setup-timers ()
   "Set up timers, that is, call `run-at-time' using settings you have specified."
   (catch 'timer-is-nil
     (cond
      ((greader-timer-flag-p)
-      (setq-local greader-stop-timer (run-at-time (- (greader-convert-mins-to-secs greader-timer) greader-elapsed-time) nil 'greader-stop-timer-callback))
-      (setq-local greader-elapsed-timer (run-at-time 1 1 'greader-elapsed-time)))
+      (setq-local greader-stop-timer (run-at-time (- (greader-convert-mins-to-secs greader-timer) greader-elapsed-time) nil #'greader-stop-timer-callback))
+      (setq-local greader-elapsed-timer
+                  (run-at-time 1 1 #'greader-elapsed-time)))
      ((not (greader-timer-flag-p))
       (throw 'timer-is-nil nil))))
   t)
@@ -806,7 +789,7 @@ time elapsed before you stopped."
       (greader-setup-tired-timer))
   (cond
    ((greader-soft-timer-p)
-    (setq-local greader-backend-action 'greader--default-action))
+    (setq-local greader-backend-action #'greader--default-action))
    ((not greader-soft-timer)
     (greader-stop))))
 
@@ -859,11 +842,12 @@ Enabling tired mode implicitly enables timer also."
        (time-add
 	(current-idle-time)
 	(seconds-to-time
-	 greader-tired-time)) nil 'greader-tired-mode-callback)))
+	 greader-tired-time))
+       nil #'greader-tired-mode-callback)))
 
 (defun greader-tired-mode-callback ()
   "Not documented, internal use."
-  (if (equal last-command 'greader-read)
+  (if (equal last-command #'greader-read)
       (greader-move-to-last-point)))
 
 (defun greader-move-to-last-point ()
@@ -876,11 +860,13 @@ Enabling tired mode implicitly enables timer also."
       (progn
 	(if (not greader-tired-flag)
 	    (greader-toggle-tired-mode))
-	(setq-local greader-auto-tired-timer(run-at-time nil 1 'greader-auto-tired-callback)))
+	(setq-local greader-auto-tired-timer
+	            (run-at-time nil 1 #'greader-auto-tired-callback)))
     (progn
       (if greader-tired-flag
 	  (greader-toggle-tired-mode))
-      (setq-local greader-auto-tired-timer (cancel-timer greader-auto-tired-timer)))))
+      (setq-local greader-auto-tired-timer
+                  (cancel-timer greader-auto-tired-timer)))))
 
 (defun greader-toggle-auto-tired-mode-flag ()
   "Not documented, internal use."
@@ -923,7 +909,7 @@ In this mode, greader will enter in tired mode at a customizable time
     (setcar (cdr (cdr current-t)) counter)
     (setcar current-t 0)
     (setcar (cdr current-t) 0)
-    (apply 'encode-time current-t)))
+    (apply #'encode-time current-t)))
 
 (defun greader-current-time-in-interval-p (time1 time2)
   "Not documented, internal use."
@@ -983,9 +969,7 @@ If prefix, it will be used to decrement  rate."
 
 (defun greader-sentence-needs-dehyphenation (str)
   "Return t if there are lines broken by hyphens in STR, nil otherwise."
-  (if (string-match greader-hyphen-regex str)
-      t
-    nil))
+  (string-match greader-hyphen-regex str))
 
 (defun greader-dehyphenate (sentence)
   "Join lines broken by hyphens in SENTENCE.
@@ -1034,11 +1018,18 @@ administrator."
 	(unless greader-compile-dictsource
 	  (error "Please set or customize `greader-compile-dictsource'
     to define espeak-ng dictionary source location"))
-	(add-hook 'after-save-hook 'greader-check-visited-file)
+	(add-hook 'after-save-hook #'greader-check-visited-file)
+	;; FIXME: AFAIK `define-minor-mode' will emit pretty much
+	;; this exact message if we don't.
 	(message "greader-compile minor mode enabled"))
-    (when (member 'greader-check-visited-file after-save-hook)
-      (message "greader-compile mode disabled")
-      (remove-hook 'after-save-hook 'greader-check-visited-file))))
+    (when (member #'greader-check-visited-file after-save-hook)
+      ;; FIXME: AFAIK `define-minor-mode' will emit pretty much
+      ;; this exact message if we don't.
+      (message "greader-compile mode disabled"))
+    ;; Call `remove-hook' even if the `member' test failed:
+    ;; it's safer to do so anyway (e.g. the `member' test may
+    ;; actually give the wrong answer).
+    (remove-hook 'after-save-hook #'greader-check-visited-file)))
 
 (defvar greader-compile-history nil)
 (defun greader-compile (&optional lang)
@@ -1088,7 +1079,7 @@ function is specifically designed to be executed by a hook."
 
       (make-process
        :name "greader-espeak"
-       :filter 'greader-compile--filter
+       :filter #'greader-compile--filter
        :command command))))
 
 (defun greader-compile--filter (&optional process str)
