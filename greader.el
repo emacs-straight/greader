@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.4.1
+;; Version: 0.5.0
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -271,6 +271,8 @@ if set to t, when you call function `greader-read', that function sets a
   :group 'greader
   (cond
    (greader-mode
+    (when greader-queue-mode
+      (greader-queue-mode -1))
     (greader-load-backends))))
 ;;;###autoload
 (define-minor-mode greader-reading-mode
@@ -349,6 +351,8 @@ This only happens if the variables `greader-start-region' and
 	(greader-set-point-to-start-of-region))
     (remove-hook 'greader-before-finish-functions #'greader-widen)
     (remove-hook 'greader-after-stop-hook #'greader-widen)))
+
+
 
 (defun greader-set-register ()
   "Set the `?G' register to the point in current buffer."
@@ -1222,6 +1226,220 @@ So you can use this command like a player, if you press <left> you
   (greader-forward-sentence)
   (greader-set-register)
   (greader-read))
+
+;; greader-queue-mode
+;; This minor mode enables an alternative reading mode, which
+;; works with blocks of text instead of the buffer in a linear fashion.
+
+(defvar-local greader-queue nil
+  "This is the variable that contains the queue.
+each element is formed by a cons, whose form is 'start-position
+. end-position'.")
+
+(defvar-local greader-queue-current-element nil
+  "Represent the current item in the queue (as index).")
+
+;; Questa funzione aggiunge un elemento alla coda.
+(defun greader-queue-add-element (&optional start end)
+  "Add an item to the queue.
+If START and END are nil, check if the region is active.
+If the region is not active either, then it throws an error."
+  (interactive)
+  (unless (and start end)
+    (if (region-active-p)
+	(progn
+	  (setq start (region-beginning) end (region-end))
+	  (deactivate-mark))
+      (user-error "Nothing to add")))
+  (let ((result (greader-queue-region-overlap start end)))
+    (if result
+	(greader-queue-modify-element result start end)
+      (add-to-list 'greader-queue (cons start end) t)))
+  (unless greader-queue-current-element
+    (setq greader-queue-current-element 0)))
+
+;; This function determines whether the region overlaps with one of the
+;; items in the queue.
+(defun greader-queue-region-overlap (&optional start end)
+  "Return the index of the element that overlaps the region.
+If the region does not overlap any of the items in the queue,
+then return nil."
+  (unless (and start end)
+    (if (region-active-p)
+	(setq start (region-beginning) end (region-end))
+      (user-error "Please specify a region")))
+  (if greader-queue
+      (let ((result nil) (counter 0))
+	(dolist (item greader-queue)
+	  (when (or
+		 (and (>= start (car item)) (<= start (cdr item)))
+		 (and (>= end (car item)) (<= end (cdr item))))
+	    (setq result counter))
+	  (setq counter (1+ counter)))
+	result)
+    nil))
+
+;; This function modifies an item in the queue.
+(defun greader-queue-modify-element (index start end)
+  "Modify the item specified in INDEX with the new START and END.
+This function modifies the `greader-queue' variable."
+  (let ((result nil) (counter 0))
+    (dolist (item greader-queue)
+      (if (equal counter index)
+	  (progn
+	    (push (cons start end) result)
+	    (setq counter (1+ counter)))
+	(push item result)
+	(setq counter (1+ counter))))
+    (setq greader-queue (reverse result))))
+
+;;this function resets the queue.
+(defun greader-queue-reset-queue ()
+  "Reset the queue and relative variables."
+  (interactive)
+  (setq greader-queue nil)
+  (setq greader-queue-current-element nil))
+
+;; This function removes an item from the queue.
+(defun greader-queue-remove-element (&optional index)
+  "Remove the item in INDEX.
+If INDEX is nil, use the `greader-queue-current-element' variable."
+  (interactive)
+  (unless index
+    (setq index greader-queue-current-element))
+  (when (>= index (length greader-queue))
+    (user-error "Index out of range"))
+  (setq greader-queue (seq-remove-at-position greader-queue index)))
+
+;; This function gets the text linked to an element of the
+;; queue.
+(defun greader-queue-get-element (&optional index)
+  "return the text associated with a queue item or nil if INDEX is beyond
+the limit.
+If INDEX is nil, use `greader-queue-current-element'."
+  (unless index
+    (setq index greader-queue-current-element))
+  (when (equal (length greader-queue) 0)
+    (user-error "Queue is emty"))
+  (let ((result nil))
+    (when (< greader-queue-current-element (length greader-queue))
+      (setq result (buffer-substring (car (elt greader-queue index)) (cdr (elt
+									   greader-queue
+									   index)))))
+    result))
+
+;; This function returns the next item in the queue. If
+;; the current element is the last one, then it returns nil.
+(defun greader-queue-get-next-element ()
+  "return the next item in the queue.
+If the current element is the last one, then return nil."
+  (unless greader-queue-current-element
+    (setq greader-queue-current-element 0))
+  (if (equal (1+ greader-queue-current-element) (length
+						 greader-queue))
+      nil
+    (setq greader-queue-current-element (1+ greader-queue-current-element))
+    (greader-queue-get-element)))
+
+;; This function returns the previous item in the queue, if it is
+;; the first one, returns it.
+(defun greader-queue-get-prev-element ()
+  "Return the previous item in the queue.
+If the current element is the first, it returns it."
+  (unless greader-queue-current-element
+    (setq greader-queue-current-element 0))
+  (if (> greader-queue-current-element 0)
+      (setq greader-queue-current-element (1-
+					   greader-queue-current-element)))
+  (greader-queue-get-element))
+
+;; This function will act as a sentinel for the tts when invoked
+;; by the `greader-queue-read' function.
+(defun greader-queue-next-action (&optional process string)
+  "Sentinel process for greader-queue-mode."
+  (setq greader-queue-current-element (1+
+				       greader-queue-current-element))
+  (greader-queue-read))
+
+;; This function is a reimplementation in salsa queue's
+;; reader-read. The idea is to map it right in place of
+;; greader-read in the `greader-queue-mode' keymap.
+(defun greader-queue-read ()
+  "Entry point for `greader-queue-mode'."
+  (interactive)
+  (let ((text (greader-queue-get-element)))
+    (if text
+	(progn
+	  (setq-local greader-backend-action
+		      #'greader-queue-next-action)
+	  (greader-read-asynchronous text))
+      (setq-local greader-backend-action #'greader--default-action)
+      (greader-read-asynchronous "end of queue."))))
+
+;; This function stops reading of queue.
+(defun greader-queue-stop ()
+  "stop reading of queue."
+  (interactive)
+  (setq greader-backend-action #'greader--default-action)
+  (greader-tts-stop))
+;; This function moves the point to the beginning of the previous element
+;; in the queue and start reading.
+(defun greader-queue-backward ()
+  "Move the point to the beginning of the item in the queue and start the
+reading.
+If we are already at the first element, it makes a ding and does
+nothing else."
+  (interactive)
+  (if (equal greader-queue-current-element 0)
+      (ding)
+    (greader-tts-stop)
+    (setq greader-queue-current-element (1-
+					 greader-queue-current-element))
+    (greader-queue-read)))
+
+;; This function moves the point to the next item in the queue and
+;; reads it.
+(defun greader-queue-forward ()
+  "Move the point to the next item in the queue and read it.
+If it is already the last item in the queue it beeps and does nothing
+else."
+  (if (equal greader-queue-current-element (- 1 (length
+						 greader-queue)))
+      (ding)
+    (greader-tts-stop)
+    (setq greader-queue-current-element (1+
+					 greader-queue-current-element))
+    (greader-queue-read)))
+
+;; this is the keymap for greader-queue-mode.
+(defvar-keymap greader-queue-mode-map
+  :doc "greader-queue-mode map."
+  "C-r RET" #'greader-queue-add-element
+  "C-r SPC" #'greader-queue-read
+  "C-r <left>" #'greader-queue-backward
+  "C-r <right>" #'greader-queue-forward
+  "C-r ." #'greader-queue-stop)
+(defvar-local greader-greader-mode-was-active nil
+  "This variable becomes t if `greader-mode' is active when
+`greader-queue-mode' is enabled.
+This is to avoid reactivating `greader-mode' if it wasn't active
+before.")
+
+;;;###autoload
+(define-minor-mode greader-queue-mode
+  "In this mode, text reading occurs via blocks.
+normally greader reads the text of a buffer sequentially; in queue-mode you add blocks of text to a queue, so you can choose only certain parts of the buffer.
+As reading progresses, further blocks can be added,
+or you can add the blocks and then start reading."
+  :lighter "greader-q"
+  (cond
+   (greader-queue-mode
+    (when greader-mode
+      (setq greader-greader-mode-was-active t)
+      (greader-mode -1)))
+   ((not greader-queue-mode)
+    (when greader-greader-mode-was-active
+      (greader-mode 1)))))
 
 (provide 'greader)
 ;;; greader.el ends here
