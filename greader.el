@@ -279,7 +279,7 @@ if set to t, when you call function `greader-read', that function sets a
   nil
   :interactive nil
   :keymap greader-reading-map
-  :lighter "reading...")
+  :lighter " reading...")
 
 (defun set-bookmark-for-greader ()
   "Imposta il segnalibro ad ogni interruzione della lettura."
@@ -291,7 +291,7 @@ if set to t, when you call function `greader-read', that function sets a
   "Enable automatic bookmarking.
 Each time the reading of the buffer is stopped a bookmark is saved
 when the buffer is visiting a file."
-  :lighter "bk"
+  :lighter " bk"
   :global t
   (if greader-auto-bookmark-mode
       (add-hook 'greader-after-stop-hook #'set-bookmark-for-greader)
@@ -644,7 +644,7 @@ If at end of buffer, nil is returned."
 	  (when (not (eobp))
 	    (forward-sentence))
 	  (if (> (point) sentence-start)
-	      (string-trim (buffer-substring-no-properties sentence-start (point)) "[ \t\n\r]+")
+	      (string-trim (buffer-substring sentence-start (point)) "[ \t\n\r]+")
 	    nil))))))
 
 (defun greader-sentence-at-point ()
@@ -1431,7 +1431,7 @@ before.")
 normally greader reads the text of a buffer sequentially; in queue-mode you add blocks of text to a queue, so you can choose only certain parts of the buffer.
 As reading progresses, further blocks can be added,
 or you can add the blocks and then start reading."
-  :lighter "greader-q"
+  :lighter " greader-q"
   (cond
    (greader-queue-mode
     (when greader-mode
@@ -1440,6 +1440,55 @@ or you can add the blocks and then start reading."
    ((not greader-queue-mode)
     (when greader-greader-mode-was-active
       (greader-mode 1)))))
+
+(defcustom greader-enriched-tag "link: "
+  "Message to be spoken when clicking elements are encountered.
+If the value is a string, that string will be used.
+If it is a function, it must return a string."
+  :type '(choice (string :tag "String")
+                 (function :tag "function")))
+
+(defun greader--get-enriched-tag ()
+  "Return the value of `greader-enriched-tag'."
+  (pcase greader-enriched-tag
+    ((pred functionp)
+     (funcall #'greader-enriched-tag))
+    ((pred stringp)
+     greader-enriched-tag)))
+
+(defun greader-scrap-links (input-string)
+  "Modify the INPUT-STRING string to precede each link with 'link: '"
+  (let ((pos 0)
+        (modified nil)
+        (result (copy-sequence input-string)))
+    ;; Search for the location of the next link.
+    (while (setq pos (next-single-property-change pos 'mouse-face result))
+      ;; Check if the location has the 'mouse-face' property set.
+      (when (get-text-property pos 'mouse-face result)
+        (setq modified t)
+	;; Add 'link:' before the location.
+        (setq result (concat (substring result 0 pos)
+                             (greader--get-enriched-tag)
+                             (substring result pos)))
+	;; Update the search position taking into account the "link: " string we just entered.
+        (setq pos (+ pos 6))))
+    ;; Return the modified string if links were found.
+    (if modified result nil)))
+
+;;;###autoload
+(define-minor-mode greader-enriched-mode
+  "This mode causes greader to announce clickable objects.
+To configure the message with which it must be announced
+the element, configure the `greader-enriched-tag' variable."
+  :lighter "rich"
+  (if greader-enriched-mode
+      (progn
+	(unless greader-mode
+	  (greader-mode 1))
+	(add-hook 'greader-after-get-sentence-functions
+		  #'greader-scrap-links))
+    (remove-hook 'greader-after-get-sentence-functions
+		 #'greader-scrap-links)))
 
 (provide 'greader)
 ;;; greader.el ends here
