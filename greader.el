@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.6.0
+;; Version: 0.7.0
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -675,9 +675,26 @@ buffer, so if you want to set it globally, please use
   "Set punctuation to FLAG."
   (greader-call-backend 'punctuation flag))
 
+(defun greader--get-local-language ()
+  "Returns the language code from the system's locale."
+  (let ((locale (or (getenv "LANG") ; First try with the LANG environment variable
+                    (getenv "LC_ALL") ; Then with LC_ALL
+                    "en"))) ; Default to "en" if nothing is found
+    ;; Extracts the language code from the locale (e.g., "en_US.UTF-8" becomes "en")
+    (if (string-match "\\([a-z]+\\)_" locale)
+        (match-string 1 locale)
+      "en"))) ; Default to "en" if the locale format is unrecognized
+
 (defun greader-get-language ()
-  "return language set in current back-end."
-  (greader-call-backend 'get-language))
+  "return language set in current back-end.
+if `current-backend' does not implement `get-language' command, try to
+get the language from the environment."
+  (let ((lang nil))
+    (if (equal (greader-call-backend 'get-language)
+	       'not-implemented)
+	(setq lang (greader--get-local-language))
+      (setq lang (greader-call-backend 'get-language)))
+    lang))
 
 (defun greader-toggle-punctuation ()
   "Toggle punctuation locally for current buffer."
@@ -1578,11 +1595,19 @@ When this minor-mode is active, say in `info-mode', it will be
 called the `info-scroll-up' function instead of finishing reading."
   :lighter " continuous"
   (if greader-continuous-mode
-      (add-hook 'greader-before-finish-functions
-		#'greader-continuous-call-function 0 t)
+      (progn
+	(unless (greader-continuous-guess-function)
+	  (let ((error-string
+		 (concat
+		  "I can't determine the function for
+scroll in " (symbol-name major-mode) ".\nPlease add
+this major mode to the variable `greader-continuous-modes'")))
+	    (greader-continuous-mode -1)
+	    (user-error "%s" error-string)))
+	(add-hook 'greader-before-finish-functions
+		  #'greader-continuous-call-function 0 t))
     (remove-hook 'greader-before-finish-functions
 		 #'greader-continuous-call-function t)))
-    
 
 (provide 'greader)
 ;;; greader.el ends here
