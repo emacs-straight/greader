@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.8.0
+;; Version: 0.8.1
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -1490,14 +1490,15 @@ If it is a function, it must return a string."
 	;; Update the search position taking into account the "link: " string we just entered.
         (setq pos (+ pos 6))))
     ;; Return the modified string if links were found.
-    (if modified result nil)))
+    (if modified result input-string)))
 
 ;;;###autoload
 (define-minor-mode greader-enriched-mode
   "This mode causes greader to announce clickable objects.
 To configure the message with which it must be announced
 the element, configure the `greader-enriched-tag' variable."
-  :lighter "rich"
+  :lighter " rich"
+  :global t
   (if greader-enriched-mode
       (progn
 	(unless greader-mode
