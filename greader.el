@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.8.1
+;; Version: 0.8.2
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@ Functions in this variable don't receive arguments.")
   "Hook run after getting a sentence.
 Functions in this hook take a string as argument, and should modify
   that string that contains the sentence that will be read.
-the function should return modified sentence, or nil if no operation
+the function should return modified sentence, or original text if no operation
   was needed.")
 
 (defun greader--call-functions-after-get-of-sentence (sentence)
@@ -82,8 +82,8 @@ Return SENTENCE, eventually modified by the functions."
     (run-hook-wrapped 'greader-after-get-sentence-functions
                       (lambda (func)
                         (when (fboundp func)
-	                  (setq result (or (funcall func result)
-	                                   sentence)))))
+	                  (setq result (funcall func result))
+			  nil)))
     result))
 
 (defvar greader-before-read-hook nil
