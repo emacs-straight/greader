@@ -318,7 +318,7 @@ Return nil if KEY is not present in `greader-dictionary'."
 				 greader-dict--current-reading-buffer))
     (maphash
      (lambda (k v)
-       (insert (concat k "=" v "\n")))
+       (insert (concat "\"" k "\"" "=" v "\n")))
      greader-dictionary)
     (write-region (point-min) (point-max)
 		  (greader-dict--get-file-name)))
@@ -328,9 +328,9 @@ Return nil if KEY is not present in `greader-dictionary'."
   "populate `greader-dictionary' with the contents of
 `greader-dict-filename'.
 If FORCE is non-nil, reading happens even if there are definitions not
-  yet saved.
+yet saved.
 If FORCE is nil \(the default\) then this function generates an
-  user-error and aborts the reading process."
+user-error and aborts the reading process."
   ;; This code is to provide a variable
   ;; `greader-dictionary' by default usable in the buffer
   ;; temporary where the replacements defined in `greader-after-get-sentence-functions' occur.
@@ -346,7 +346,8 @@ If FORCE is nil \(the default\) then this function generates an
       (insert-file-contents (greader-dict--get-file-name))
       (when-let ((lines (string-lines (buffer-string) t)))
 	(dolist (line lines)
-	  (setq line (split-string line "="))
+	  (setq line (split-string line "=" ))
+	  (setf (car line) (car (split-string (car line) "\"" t)))
 	  (let ((greader-dict-save-after-time -1))
 	    (greader-dict-add (car line) (car (cdr line)))))
 	(setq greader-dict--saved-flag t))))
@@ -360,7 +361,8 @@ You should use this command when you want to save your dictionary and
 Otherwise, data saving is done automatically when you add a definition
 to the dictionary."
   (interactive)
-  (greader-dict-write-file))
+  (let ((greader-dict--saved-flag nil))
+    (greader-dict-write-file)))
 
 ;; This command Adds a definition to `greader-dictionary'.
 ;; If the region is active and it does not constitute more than one word,
@@ -402,7 +404,8 @@ of pronunciation rules."
 	(user-error "Input is empty: aborting"))
       (setq key (concat key greader-dict-match-indicator))
       (setq value (read-string (concat "substitute regexp " key "with:
-")))
+")
+			       nil nil(gethash key greader-dictionary)))
       (greader-dict-add key value))
      ((region-active-p)
       (when (= (count-words(region-beginning) (region-end)) 1)
@@ -413,7 +416,8 @@ of pronunciation rules."
 					(region-end)))
 			  greader-dict-match-indicator))
 	(setq value (read-string (concat "substitute match " key
-					 "with:")))
+					 "with: ")
+				 nil nil (gethash key greader-dictionary)))
 	(greader-dict-add key value)))
      ((not (region-active-p))
       (if-let ((default-word (thing-at-point 'word)))
@@ -423,11 +427,13 @@ modify: " nil
 nil
 (append (list default-word)(greader-dict--get-matches 'word))))
 	    (setq value (read-string (concat "substitute word " key
-					     " with:")))
+					     " with: ")
+				     (gethash key greader-dictionary)))
 	    (greader-dict-add key value))
 	(setq key (read-string "Word to add or modify: " nil nil
 			       (greader-dict--get-matches 'word)))
-	(setq value (read-string (concat "substitute " key " with:")))
+	(setq value (read-string (concat "substitute " key " with: ")
+				 nil nil (gethash key greader-dictionary)))
 	(greader-dict-add key value))))))
 
 (defun greader-dict-remove-entry (key)
@@ -614,9 +620,10 @@ as a word definition."
     (greader-dict-read-from-dict-file)
     (add-hook 'greader-after-get-sentence-functions
 	      #'greader-dict--replace-wrapper 1)
-					; (add-hook 'greader-reading-mode-hook #'greader-dict--update))))
-
-    (add-hook 'buffer-list-update-hook #'greader-dict--update))))
+    (add-hook 'buffer-list-update-hook #'greader-dict--update)
+    (add-hook 'greader-after-change-language-hook
+	      (lambda ()
+		(when greader-dict-mode (greader-dict-read-from-dict-file)))))))
 ;; Questa funzione è solo di utilità e potrebbe essere rimossa o
 ;; modificata in qualsiasi momento.
 (defun greader-dict-beep ()
