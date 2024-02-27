@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.9.9
+;; Version: 0.9.10
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -684,7 +684,7 @@ buffer, so if you want to set it globally, please use
 	  (read-string "Set language to: ")
 	result))))
   (greader-call-backend 'lang lang)
-  (run-hooks greader-after-change-language-hook))
+  (run-hooks 'greader-after-change-language-hook))
 
 (defun greader-set-punctuation (flag)
   "Set punctuation to FLAG."
