@@ -6,7 +6,7 @@
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
 
-;; Version: 0.9.15
+;; Version: 0.9.16
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -1222,8 +1222,8 @@ When called from a function, you should specify SRC and DST, even if
   :type 'boolean)
 
 (defun greader--forward ()
-  (when (equal
-	 (point) greader--marker-backward)
+  (when (and (equal
+	 (point) greader--marker-backward) greader-reading-mode)
     (greader-forward-sentence)
     (backward-char 2)
     (when greader-backward-acoustic-feedback
