@@ -85,6 +85,39 @@
 ;; (greader-dict-mode 1)
 ;; (greader-dict--set-file 'mode)))
 ;;
+;; filters
+;; Filters are an alternative way of implementing your pronunciation
+;; rules.
+;; Word and match abstractions exist to make simpler daily tasks, or,
+;; put in other words, matches and words are regexp presets.
+;; Matches in particular have the limitation that you must define a
+;; rule in terms of human language entities, matches must have
+;; necessarily an alphabetic part.
+;; You cannot use matches to define rules for character substitution.
+;; Filters instead allow you to use whatever you want in terms of
+;; regexps, and to substitute them with all the constructs that the
+;; regexp matcher of emacs allow.
+;; filters however can become fastly inefficent, because the algoritm
+;; used is crude when applying filters: take every filter and cycle
+;; over the buffer until you have applied all the filters.
+;; the dictionary feature, instead, can handle thousands of
+;; definitions with a small decrease of performance.
+;; I suggest that you should use word definitions when possible, even
+;; if those are similar.
+;; Use matches when you individuate a pattern that can work with a
+;; common set of characters, using `shy groups'.
+;; See the emacs manual for more information about regexp syntax and
+;; related.
+;; Use `greader-dict-filter-add' to add a new filter to the database,
+;; `greader-dict-filter-remove' to remove an existing filter from the
+;; database,
+;; `greader-dict-filter-modify' to modify a key preserving its old
+;; value.
+;; to enable filters, use the command `greader-dict-toggle-filters',
+;; it is also a customizable variable.
+;; This module offers a command
+;; `greader-dict-pronounce-in-other-language' that can be used for
+;; earing how the tts pronounces a word in another language.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; 
 ;;; Change Log:
@@ -110,14 +143,16 @@
 ;; 
 ;;; Code:
 (require 'greader)
-(defgroup greader-dict nil "String substitution module for greader"
+(defgroup greader-dict nil
+  "String substitution module for greader"
   :group 'greader)
 ;; THanks to the loved and alwais useful elisp reference.
 (defun string-hash-ignore-case (a)
   (sxhash-equal (upcase a)))
 
 (define-hash-table-test 'ignore-case
-			'string-equal-ignore-case 'string-hash-ignore-case)
+			'string-equal-ignore-case
+			'string-hash-ignore-case)
 
 (defvar-local  greader-dictionary nil)
 (defvar greader-dict-match-indicator "\%\*"
@@ -218,7 +253,8 @@ add `\*'to the end of the WORD string parameter."
 (defvar greader-dict--item-type-alist '((match
 					 . "\%\*")
 					(filter
-					 . "\%f") (word . ""))
+					 . "\%f")
+					(word . ""))
   "item types and relative prefixes.")
 
 (defun greader-dict-item-type (key)
@@ -233,7 +269,12 @@ Return nil if KEY is not present in `greader-dictionary'."
     (let (result)
       (catch 'key-found
 	(dolist (type greader-dict--item-type-alist)
-	  (if (gethash (concat key (unless (string-suffix-p (cdr type) key) (cdr type))) greader-dictionary)
+	  (if
+	      (gethash
+	       (concat key
+		       (unless (string-suffix-p (cdr type) key)
+			 (cdr type)))
+	       greader-dictionary)
 	      (progn
 		(setq result (car type))
 		(throw 'key-found result))
@@ -248,7 +289,8 @@ Return nil if KEY is not present in `greader-dictionary'."
    (t
     (let ((reduced-dictionary (make-hash-table :test 'ignore-case)))
       (dolist (item (greader-dict--get-matches 'match))
-	(puthash item (gethash item greader-dictionary) reduced-dictionary))
+	(puthash item (gethash item greader-dictionary)
+		 reduced-dictionary))
       (let ((key nil))
 	(catch 'matched
 	  (maphash
@@ -257,9 +299,11 @@ Return nil if KEY is not present in `greader-dictionary'."
 			     greader-dict-match-indicator k))
 		    (candidate-matches (string-split result "\\W" t)))
 	       (setq candidate-matches (sort candidate-matches
-					     (lambda (s1 s2) (> (length s1)
-								(length
-								 s2)))))
+					     (lambda (s1 s2) (>
+							      (length
+							       s1)
+							      (length
+							       s2)))))
 	       (dolist (candidate candidate-matches)
 		 ;; (message "%s" (concat "matching " candidate " against " word "..."))
 		 (when (string-match candidate word)
@@ -284,7 +328,9 @@ Return nil if KEY is not present in `greader-dictionary'."
     (goto-char (point-min))
     (when greader-dict-toggle-filters
       (greader-dict-filters-apply))
-    (if (buffer-local-value 'greader-dict-mode greader-dict--current-reading-buffer)
+    (if
+	(buffer-local-value 'greader-dict-mode
+			    greader-dict--current-reading-buffer)
 	(progn
 	  ;; We check if text is actually just one word, and in that case
 	  ;; insert a new line at end of temp buffer.
@@ -294,7 +340,8 @@ Return nil if KEY is not present in `greader-dictionary'."
 	    (re-search-forward "\\w" nil t)
 	    (while (not (eobp))
 	      (let*
-		  ((key (greader-dict--get-key-from-word (thing-at-point
+		  ((key (greader-dict--get-key-from-word (
+							  thing-at-point
 							  'word))))
 		(cond
 		 ((equal (greader-dict-item-type key) 'word)
@@ -436,17 +483,22 @@ the current sentence."
 			  greader-dict-match-indicator))
 	(setq value (read-string (concat "substitute match " key
 					 "with: ")
-				 nil nil (gethash key greader-dictionary)))
+				 nil nil
+				 (gethash key greader-dictionary)))
 	(greader-dict-add key value)))
      ((not (region-active-p))
       (if-let ((default-word (thing-at-point 'word)))
 	  (progn
 	    (setq key (read-string "Original word to substitute or
-modify: " nil
-nil
-(append (list default-word)(when
-			       greader-dict-include-sentences-in-defaults
-			     (greader-dict--get-word-alternatives (greader-get-sentence))) (greader-dict--get-matches 'word))))
+modify: "
+				   nil
+				   nil
+				   (append (list default-word)(when
+								  greader-dict-include-sentences-in-defaults
+								(greader-dict--get-word-alternatives
+								 (greader-get-sentence)))
+					   (greader-dict--get-matches
+					    'word))))
 	    (setq value (read-string (concat "substitute word " key
 					     " with: ")
 				     (gethash key greader-dictionary)))
@@ -454,7 +506,8 @@ nil
 	(setq key (read-string "Word to add or modify: " nil nil
 			       (greader-dict--get-matches 'word)))
 	(setq value (read-string (concat "substitute " key " with: ")
-				 nil nil (gethash key greader-dictionary)))
+				 nil nil
+				 (gethash key greader-dictionary)))
 	(greader-dict-add key value))))))
 
 (defun greader-dict-remove-entry (key)
@@ -651,7 +704,8 @@ as a word definition."
     (add-hook 'buffer-list-update-hook #'greader-dict--update)
     (add-hook 'greader-after-change-language-hook
 	      (lambda ()
-		(when greader-dict-mode (greader-dict-read-from-dict-file)))))))
+		(when greader-dict-mode
+		  (greader-dict-read-from-dict-file)))))))
 ;; Questa funzione è solo di utilità e potrebbe essere rimossa o
 ;; modificata in qualsiasi momento.
 (defun greader-dict-beep ()
@@ -661,10 +715,12 @@ as a word definition."
   "Print some information about current dictionary."
   (interactive)
   (let ((message
-	 (concat "Current dictionary is " (symbol-name (greader-dict--file-type))
+	 (concat "Current dictionary is "
+		 (symbol-name (greader-dict--file-type))
 		 " in file " greader-dict-filename " it has "
 		 (number-to-string (hash-table-count
-				    greader-dictionary)) " entries.")))
+				    greader-dictionary))
+		 " entries.")))
     (message "%s" message)))
 
 (defun greader-dict--get-matches (type &optional decorate)
@@ -676,17 +732,25 @@ If TYPE is `all', all items in the current dictionary will be included."
        (cond
 	((equal (greader-dict-item-type k) type)
 	 (let ((match (and (string-remove-suffix
-			    greader-dict-match-indicator k) (string-remove-suffix
+			    greader-dict-match-indicator k)
+			   (string-remove-suffix
 			    greader-dict-filter-indicator
 			    k))))
 	   (when decorate
-	     (setq match (concat match " \(" (gethash k greader-dictionary) "\)")))
+	     (setq match
+		   (concat match " \(" (gethash k greader-dictionary)
+			   "\)")))
 	   (push match matches)))
 	((equal type 'all)
-	 (let ((match (string-remove-suffix greader-dict-match-indicator k)))
+	 (let
+	     ((match
+	       (string-remove-suffix greader-dict-match-indicator k)))
 	   (when decorate
-	     (setq match (concat match " \(" (gethash k greader-dictionary) "\)")))
-	   (push match matches))))) greader-dictionary)
+	     (setq match
+		   (concat match " \(" (gethash k greader-dictionary)
+			   "\)")))
+	   (push match matches)))))
+     greader-dictionary)
     (sort
      matches
      (lambda (s1 s2)
@@ -710,7 +774,8 @@ are classified as matches."
     (if-let ((backup-value (gethash key greader-dictionary)))
 	(progn
 	  (setq new-key (read-string (concat "substitute key " key "
-  with:") nil nil key))
+  with:")
+				     nil nil key))
 	  (unless new-key
 	    (user-error "Invalid replacement"))
 	  (greader-dict-remove key)
@@ -753,7 +818,8 @@ in the current sentence."
    (list
     (read-string "Word to pronounce: " nil t
 		 (when greader-dict-include-sentences-in-defaults
-		   (greader-dict--get-word-alternatives (greader-get-sentence))))
+		   (greader-dict--get-word-alternatives
+		    (greader-get-sentence))))
     (read-string (concat "language in which you wish to listen:") nil
 		 'greader-dict-lang-history)))
   (unless new-lang (user-error "No language specified"))
@@ -775,12 +841,22 @@ in the current sentence."
   "Hash table containing our filters.")
 
 (defvar greader-dict-filter-indicator "\%f")
+
+(defvar-keymap greader-dict-filter-map
+  :doc "key bindings for greader-dict filter feature."
+  "C-r d f a" #'greader-dict-filter-add
+  "C-r d f m" #'greader-dict-filter-modify
+  "C-r r" #'isearch-backward
+  "C-r d f k" #'greader-dict-filter-remove)
+
 ;;;###autoload
 (define-minor-mode greader-dict-toggle-filters
-  "Filters allow you to replace every regexp you wish with something
-you wish.
-While matches and words are conceived as entities to help who have
-difficulties in writing a regexp, with filters you can unleash all
+  "enable or disable filters.
+Filters allow you to replace every regexp you wish with something
+else you wish.
+While matches and words are conceived as facilities that are
+designated to be user-friendly interfaces to regexps, with filters
+you can unleash all
 your expressiveness!
 Filters and dictionary are considered independent features for now, so
 you can enable filters without the extra payload given by
@@ -791,7 +867,10 @@ So use `greader-dict-filter-add' to do that.
 When you are prompted for the filter, you should insert the regexp
 that must match to have the associated replacement.
 You can use the usual `\\\\' expressions, shy groups and all the power
-of regexps."
+of regexps.
+If you are interested in how to write a regexp please consult the info
+node `(emacs) Regexps'."
+  :keymap greader-dict-filter-map
   :global t
   :lighter " gr-filters"
   (let ((dict-mode-state greader-dict-mode))
@@ -807,20 +886,66 @@ of regexps."
 
 (defun greader-dict-filter-add (key value)
   "Add KEY as a filter with associated VALUE."
-  (interactive "Madd filter: \nMreplace with: ")
-  (greader-dict-add (concat key greader-dict-filter-indicator) value))
+  (interactive
+   (let*
+       ((key (read-string "filter (regexp) to add or modify: " nil nil
+			  (greader-dict--get-matches 'filter)))
+	(value (read-string
+		(concat "substitute regexp " key " with: ") nil nil
+		(gethash (concat key greader-dict-filter-indicator)
+			 greader-dictionary))))
+     (list key value)))
+  (greader-dict-add (concat key greader-dict-filter-indicator) value)
+  (greader-dict--filter-init))
+
+(defun greader-dict-filter-remove (key)
+  "Remove KEY from the hash-table."
+  (interactive
+   (let ((key (read-string "filter to remove: " nil nil
+			   (greader-dict--get-matches 'filter))))
+     (list key)))
+  (when (gethash (concat key greader-dict-filter-indicator)
+		 greader-dictionary)
+    (greader-dict-remove (concat key
+				 greader-dict-filter-indicator))
+    (greader-dict--filter-init)))
+
+(defun greader-dict-filter-modify (key new-key)
+  "Modify _Only_ KEY.
+KEY must be an existing filter key, this command provides a list of
+them accessible using the history commands.
+NEW-KEY must not be empty, if empty, this command will signal an error."
+
+  (interactive
+   (let* ((key (read-string "key to modify: " nil nil
+			       (greader-dict--get-matches 'filter)))
+	  (new-key (read-string "new value: " nil nil key)))
+     (unless
+	 (gethash (concat key greader-dict-filter-indicator)
+		  greader-dictionary)
+       (user-error "Invalid key"))
+     (when (string-empty-p new-key)
+       (user-error "Invalid replacement, string is empty"))
+     (list key new-key)))
+  (let ((old-value (gethash (concat key greader-dict-filter-indicator)
+			    greader-dictionary)))
+    (greader-dict-filter-remove key)
+    (greader-dict-filter-add new-key old-value))
+  (greader-dict--filter-init))
 
 (defun greader-dict--filter-init ()
   "Initialize filters hash table.
 It works by subtracting from `greader-dictionary' the entries that are
 classified as filters and, eventually, adding them to the filters
 hash table."
+  (clrhash greader-filters)
   (maphash
    (lambda (k v)
-     ;; (debug)
      (when (and greader-dict-toggle-filters (string-suffix-p
-					     greader-dict-filter-indicator k))
-       (puthash k v greader-filters))) greader-dictionary))
+					     greader-dict-filter-indicator
+					     k))
+       (puthash k v greader-filters)))
+   greader-dictionary))
 
 (defun greader-dict-filters-apply ()
   "Apply filters defined in sequence to the current buffer."
@@ -829,7 +954,8 @@ hash table."
      (save-excursion
        (goto-char (point-min))
        (while (re-search-forward (string-remove-suffix
-				  greader-dict-filter-indicator k) nil t)
+				  greader-dict-filter-indicator k)
+				 nil t)
 	 (replace-match v))))
    greader-filters))
 
