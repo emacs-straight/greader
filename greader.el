@@ -1,12 +1,13 @@
-;;; greader.el --- gnamù reader, send buffer contents to a speech engine. -*- lexical-binding: t; -*-
+;;; greader.el --- Gnamù reader, send buffer contents to a speech engine -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2017-2024  Free Software Foundation, Inc.
 
-;; package-requires: ((emacs "25"))
+;; package-requires: ((emacs "26.1") (seq "2.24") (compat "29.1.4.5"))
 ;; Author: Michelangelo Rodriguez <michelangelo.rodriguez@gmail.com>
 ;; Keywords: tools, accessibility
+;; URL: https://gitlab.com/michelangelo-rodriguez/greader
 
-;; Version: 0.9.20
+;; Version: 0.11.11
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -41,6 +42,7 @@
 ;; 'C-r SPC'
 
 ;;; Code:
+(require 'seq)
 (require 'view)
 (defvar-local greader-timer-flag nil)
 
@@ -60,10 +62,11 @@
 (defvar greader-backend-action #'greader--default-action)
 (defvar greader-status 'paused)
 (defvar greader-synth-process nil)
-(require 'seq)
+
 
 (define-obsolete-variable-alias 'greader-before-get-sentence-functions
-  'greader-before-get-sentence-hook "2023")
+  'greader-before-get-sentence-hook
+  "2023")
 (defvar greader-before-get-sentence-hook nil
   "Hook run before getting a sentence.
 Functions in this variable don't receive arguments.")
@@ -93,7 +96,8 @@ Return SENTENCE, eventually modified by the functions."
   "Execute code just after reading a sentence.")
 
 (define-obsolete-variable-alias 'greader-before-finish-hook
-  'greader-before-finish-functions "2023")
+  'greader-before-finish-functions
+  "2023")
 (defvar greader-before-finish-functions nil
   "Code executed just after finishing reading of buffer.
 Functions in this hook should return non-nil if at least one function
@@ -127,7 +131,7 @@ If all the functions in the hook return nil, this function return nil."
 
 (defcustom
   greader-current-backend
-  #'greader-espeak
+  'greader-espeak
   "Greader back-end to use."
   :tag "greader current back-end"
   :type
@@ -195,7 +199,8 @@ Instead, the sentence will be read completely."
   :tag "enable debug"
   :type 'boolean)
 
-(defcustom   greader-hook nil ;; FIXME: Can't see where it's run!
+(defcustom   greader-hook nil
+  ;; FIXME: Can't see where it's run!
   "Hook run after mode activation.
 Through this hook you can
 customize your key definitions for greader, for example."
@@ -263,7 +268,7 @@ if set to t, when you call function `greader-read', that function sets a
     (define-key map (kbd "<left>")   #'greader-backward)
     (define-key map (kbd "<right>")   #'greader-forward)
     map))
-
+(defvar greader-queue-mode)
 ;;;###autoload
 (define-minor-mode greader-mode
   nil
@@ -281,7 +286,7 @@ if set to t, when you call function `greader-read', that function sets a
   :keymap greader-reading-map
   :lighter " reading...")
 
-(defun set-bookmark-for-greader ()
+(defun greader-set-bookmark-for-greader ()
   "Imposta il segnalibro ad ogni interruzione della lettura."
   (when buffer-file-name
     (let ((inhibit-message t))
@@ -294,8 +299,8 @@ when the buffer is visiting a file."
   :lighter " bk"
   :global t
   (if greader-auto-bookmark-mode
-      (add-hook 'greader-after-stop-hook #'set-bookmark-for-greader)
-    (remove-hook 'greader-after-stop-hook #'set-bookmark-for-greader)))
+      (add-hook 'greader-after-stop-hook #'greader-set-bookmark-for-greader)
+    (remove-hook 'greader-after-stop-hook #'greader-set-bookmark-for-greader)))
 ;; greader-region-mode is a non-interactive minor mode that deals with
 ;; read the active region instead of the entire buffer.
 ;; The current implementation of greader probably dictates that the
@@ -304,9 +309,9 @@ when the buffer is visiting a file."
 ;; to read and move the point "believe" that that is all the
 ;; buffer to read.
 (defvar greader-start-region nil
-  "start of region.")
+  "Start of region.")
 (defvar greader-end-region nil
-  "end of region.")
+  "End of region.")
 
 (defun greader--active-region-p ()
   "Return t if the region in the current buffer is active.
@@ -327,12 +332,12 @@ Active in this context means that the variables
   "Widen buffer and set greader-region variables to nil."
   (setq greader-start-region nil)
   (setq greader-end-region nil)
-  (greader-region-mode -1)  
+  (greader-region-mode -1)
   (widen))
 
 ;; This function places the point at the beginning of the active region.
 (defun greader-set-point-to-start-of-region ()
-  "set the point to the beginning of the active region.
+  "Set the point to the beginning of the active region.
 This only happens if the variables `greader-start-region' and
 `greader-end-region' are set."
   (when (and greader-start-region greader-end-region)
@@ -373,7 +378,8 @@ This only happens if the variables `greader-start-region' and
 
 (defun greader-call-backend (command &optional arg)
   "Call backend passing it COMMAND and ARG.
-\(internal use!\)." ;; FIXME: Use "--" in the name, then.
+\(internal use!\)."
+  ;; FIXME: Use "--" in the name, then.
 
   (if arg
       (funcall greader-current-backend command arg)
@@ -407,11 +413,15 @@ available backends."
 	                 (get elem 'greader-backend-name) backend)
 	                (setq result elem)))
 	          (or result
-	              (user-error "Not a greader's back-end: %S" backend))))
+	              (user-error "Not a greader's back-end: %S"
+				  backend))))
 	       (backend
-	        (error "backend should be a string or a function: %S" backend))
+	        (error "Backend should be a string or a function: %S"
+		       backend))
 	       (t
-	        (car (or (cdr (memq greader-current-backend greader-backends))
+	        (car (or
+		      (cdr
+		       (memq greader-current-backend greader-backends))
 	                 greader-backends)))))
   (message "Current back-end is %s"
            (get greader-current-backend 'greader-backend-name)))
@@ -434,12 +444,15 @@ available backends."
 	 (setq-local greader-synth-process (make-process
 				            :name "greader-backend"
 				            :sentinel #'greader-action
-				            :filter #'greader-process-filter
+				            :filter
+					    #'greader-process-filter
 				            :command backend)))
     (if greader-debug
 	(progn
-	  (set-process-buffer greader-synth-process greader-debug-buffer)
-	  (greader-debug (message "greader-read-asynchronous: %S" backend))))))
+	  (set-process-buffer greader-synth-process
+			      greader-debug-buffer)
+	  (greader-debug
+	   (message "greader-read-asynchronous: %S" backend))))))
 
 (defun greader-get-status ()
   "Return greader status."
@@ -463,7 +476,8 @@ available backends."
 
 (defun greader-tts-stop ()
   "Stop reading of current buffer."
-  (set-process-sentinel greader-synth-process #'greader--default-action)
+  (set-process-sentinel greader-synth-process
+			#'greader--default-action)
   (if
       (not
        (eq
@@ -477,7 +491,8 @@ available backends."
 Optional argument PROCESS
 Optional argument EVENT ."
   (if greader-debug
-      (greader-debug (format "greader--default-action entered.\nevent: %S\n" event)))
+      (greader-debug
+       (format "greader--default-action entered.\nevent: %S\n" event)))
   (cond
    ((and (greader-timer-flag-p) (timerp greader-stop-timer))
     (greader-cancel-elapsed-timer)
@@ -557,7 +572,7 @@ mindfullness!)."
 	(greader-mode 1)
 	(greader-read))
     (fset 'y-or-n-p (symbol-function 'greader-temp-function))))
-
+(defvar greader-continuous-mode)
 (defun greader-read (&optional goto-marker)
   "Start reading of current buffer.
 if `GOTO-MARKER' is t and if you pass a prefix to this
@@ -565,6 +580,9 @@ function, point jumps at the last position you called command `greader-read'."
 
   (interactive "P")
   (when goto-marker
+    (when greader-continuous-mode
+      (user-error "`greader-continuous-mode' is enabled, please
+  disable it to use the prefix"))
     (greader-jump-to-register))
   (when (called-interactively-p 'any)
     (greader-set-register))
@@ -586,7 +604,8 @@ function, point jumps at the last position you called command `greader-read'."
   (let ((chunk (funcall greader-read-chunk-of-text)))
     (if chunk
 	(progn
-	  (setq chunk (greader--call-functions-after-get-of-sentence chunk))
+	  (setq chunk
+		(greader--call-functions-after-get-of-sentence chunk))
 	  ;; This extra verification is necessary because espeak has a bug that,
 	  ;; when we pass a string containing a vocal plus only 2 .. it reads
 	  ;; garbage.
@@ -608,7 +627,9 @@ function, point jumps at the last position you called command `greader-read'."
    ((and (> greader-elapsed-time 0) greader-timer-flag)
     (greader-cancel-elapsed-timer)
     (greader-cancel-stop-timer)
-    (if (>= greader-elapsed-time (1- (greader-convert-mins-to-secs greader-timer)))
+    (if
+	(>= greader-elapsed-time
+	    (1- (greader-convert-mins-to-secs greader-timer)))
 	(greader-reset-elapsed-time))
     (setq-local greader-stop-timer 0)))
   (greader-set-greader-keymap)
@@ -624,13 +645,15 @@ Argument ARG is not used."
     (insert arg)))
 (defvar greader-sentence-regexp "[.?!]+[[:space:]]"
   "Regexp to indicate the end of a sentence in terms of greader.")
-
+(defvar greader-classic-nav-mode)
 (defun greader-forward-sentence ()
   "Move the point to next sentence."
   (let ((result (greader-call-backend 'next-text)))
     (if (not (equal result 'not-implemented))
 	result
-      (let ((sentence-end (if greader-classic-nav-mode nil greader-sentence-regexp)))
+      (let
+	  ((sentence-end
+	    (if greader-classic-nav-mode nil greader-sentence-regexp)))
 	(forward-sentence)))))
 
 (defun greader-backward-sentence ()
@@ -638,7 +661,9 @@ Argument ARG is not used."
   (let ((result (greader-call-backend 'next-text)))
     (if (not (equal result 'not-implemented))
 	result
-      (let ((sentence-end (if greader-classic-nav-mode nil greader-sentence-regexp)))
+      (let
+	  ((sentence-end
+	    (if greader-classic-nav-mode nil greader-sentence-regexp)))
 	(backward-sentence)))))
 
 (defun greader-get-sentence ()
@@ -655,7 +680,8 @@ If at end of buffer, nil is returned."
 	  (when (not (eobp))
 	    (greader-forward-sentence))
 	  (if (> (point) sentence-start)
-	      (string-trim (buffer-substring sentence-start (point)) "[ \t\n\r]+")
+	      (string-trim (buffer-substring sentence-start (point))
+			   "[ \t\n\r]+")
 	    nil))))))
 
 (defun greader-sentence-at-point ()
@@ -669,14 +695,12 @@ Optional argument STRING contains the string passed to
   (if greader-filter-enabled
       (message string)))
 (defvar greader-after-change-language-hook nil
-  "The functions stored in this variable are executed just after new
-language is set.")
+  "The functions in this variable are executed just after new language is set.")
+
 (defun greader-set-language (lang)
   "Set language of tts.
 LANG must be in ISO code, for example `en' for English or `fr' for
-French.  This function sets the language of tts locally for current
-buffer, so if you want to set it globally, please use
-`M-x customize-option RET greader-language RET'."
+French."
   (interactive
    (list
     (let ((result (greader-call-backend 'set-voice nil)))
@@ -691,17 +715,19 @@ buffer, so if you want to set it globally, please use
   (greader-call-backend 'punctuation flag))
 
 (defun greader--get-local-language ()
-  "Returns the language code from the system's locale."
+  "Return the language code from the system's locale."
   (let ((locale (or (getenv "LANG") ; First try with the LANG environment variable
                     (getenv "LC_ALL") ; Then with LC_ALL
-                    "en"))) ; Default to "en" if nothing is found
+                    "en")))
+					; Default to "en" if nothing is found
     ;; Extracts the language code from the locale (e.g., "en_US.UTF-8" becomes "en")
     (if (string-match "\\([a-z]+\\)_" locale)
         (match-string 1 locale)
-      "en"))) ; Default to "en" if the locale format is unrecognized
+      "en")))
+					; Default to "en" if the locale format is unrecognized
 
 (defun greader-get-language ()
-  "return language set in current back-end.
+  "Return language set in current back-end.
 if `current-backend' does not implement `get-language' command, try to
 get the language from the environment."
   (let ((lang nil))
@@ -710,6 +736,14 @@ get the language from the environment."
 	(setq lang (greader--get-local-language))
       (setq lang (greader-call-backend 'get-language)))
     lang))
+
+(defun greader-get-rate ()
+  "Return the numerical value for current back-end rate."
+  (let ((result (greader-call-backend 'get-rate)))
+    (if (not (equal result 'not-implemented))
+	result
+      (user-error "Backend feature \"get-rate\" not implemented for
+the current backend"))))
 
 (defun greader-toggle-punctuation ()
   "Toggle punctuation locally for current buffer."
@@ -769,7 +803,11 @@ Optional argument TIMER-IN-MINS timer in minutes (integer)."
   (catch 'timer-is-nil
     (cond
      ((greader-timer-flag-p)
-      (setq-local greader-stop-timer (run-at-time (- (greader-convert-mins-to-secs greader-timer) greader-elapsed-time) nil #'greader-stop-timer-callback))
+      (setq-local greader-stop-timer
+		  (run-at-time
+		   (- (greader-convert-mins-to-secs greader-timer)
+		      greader-elapsed-time)
+		   nil #'greader-stop-timer-callback))
       (setq-local greader-elapsed-timer
                   (run-at-time 1 1 #'greader-elapsed-time)))
      ((not (greader-timer-flag-p))
@@ -907,12 +945,16 @@ Enabling tired mode implicitly enables timer also."
       (setq-local greader-auto-tired-mode t)
       (greader-auto-tired-mode-setup))))
 
-(defun greader-toggle-auto-tired-mode () "Enable auto tired mode.
+(defun greader-toggle-auto-tired-mode ()
+  "Enable auto tired mode.
 In this mode, greader will enter in tired mode at a customizable time
   and will exit from it at another time.  The default is 22:00 for
-  entering and 08:00 for exiting."  (interactive)
+  entering and 08:00 for exiting."
+  (interactive)
   (greader-toggle-auto-tired-mode-flag) (if greader-auto-tired-mode
-					    (message "auto-tired mode enabled in current buffer") (message
+					    (message
+					     "auto-tired mode enabled in current buffer")
+					  (message
 												   "auto-tired mode disabled in current buffer.")))
 
 (defun greader-current-time ()
@@ -920,7 +962,7 @@ In this mode, greader will enter in tired mode at a customizable time
   (string-to-number (format-time-string "%H")))
 
 (defun greader-convert-time (time)
-  "Not documented, internal use."
+  "Return encoded TIME."
   (let ((current-t (decode-time))
 	(i (nth 2 (decode-time)))
 	(counter (nth 2 (decode-time))))
@@ -940,11 +982,12 @@ In this mode, greader will enter in tired mode at a customizable time
     (apply #'encode-time current-t)))
 
 (defun greader-current-time-in-interval-p (time1 time2)
-  "Not documented, internal use."
+  "Return t if TIME2 is in TIME1."
   (let
       ((current-t (current-time)))
     (if
-	(and (time-less-p time1 current-t) (time-less-p current-t time2))
+	(and (time-less-p time1 current-t)
+	     (time-less-p current-t time2))
 	t
       nil)))
 
@@ -952,22 +995,31 @@ In this mode, greader will enter in tired mode at a customizable time
   "Not documented, internal use."
   (if
       (stringp greader-auto-tired-mode-time)
-      (setq-local greader-auto-tired-mode-time (greader-convert-time greader-auto-tired-mode-time)))
+      (setq-local greader-auto-tired-mode-time
+		  (greader-convert-time greader-auto-tired-mode-time)))
   (if
       (stringp greader-auto-tired-time-end)
-      (setq-local greader-auto-tired-time-end (greader-convert-time greader-auto-tired-time-end)))
+      (setq-local greader-auto-tired-time-end
+		  (greader-convert-time greader-auto-tired-time-end)))
   (if
       (and
-       (greader-current-time-in-interval-p greader-auto-tired-mode-time greader-auto-tired-time-end)
+       (greader-current-time-in-interval-p
+	greader-auto-tired-mode-time greader-auto-tired-time-end)
        (not greader-tired-flag))
       (greader-toggle-tired-mode))
   (if
       (and
-       (not (greader-current-time-in-interval-p greader-auto-tired-mode-time greader-auto-tired-time-end))
+       (not
+	(greader-current-time-in-interval-p
+	 greader-auto-tired-mode-time greader-auto-tired-time-end))
        greader-tired-flag)
       (progn
-	(setq-local greader-auto-tired-mode-time (number-to-string (nth 2 (decode-time greader-auto-tired-mode-time))))
-	(setq-local greader-auto-tired-time-end (number-to-string (nth 2 (decode-time greader-auto-tired-time-end))))
+	(setq-local greader-auto-tired-mode-time
+		    (number-to-string
+		     (nth 2 (decode-time greader-auto-tired-mode-time))))
+	(setq-local greader-auto-tired-time-end
+		    (number-to-string
+		     (nth 2 (decode-time greader-auto-tired-time-end))))
 	(greader-toggle-tired-mode))))
 
 (defun greader-set-rate (n)
@@ -1029,7 +1081,7 @@ You must configure this variable in order to use
   `greader-compile-mode'."
   :tag "greader compile source dictionary directory"
   :type '(repeat :tag "directory:" string))
-
+;;;###autoload
 (define-minor-mode greader-compile-mode
   "Espeak voice definition and compilation mode.
 This global minor mode of greader allows saving of an
@@ -1064,7 +1116,7 @@ administrator."
   "Compile espeak voice for a given LANG.
 when called interactively, compile the
 espeak-ng definitions for a given language.
-By default, greader-compile infers the language from the first two
+By default, `greader-compile' infers the language from the first two
 letters of the file you are visiting.
 If its LANG parameter is `non-nil', the function will ask for
 specifying the language to compile, ignoring the current file name
@@ -1093,7 +1145,12 @@ function is specifically designed to be executed by a hook."
 
     (setq lang (greader-compile-guess-lang))
 
-    (let (data-is-writable (command (append '("espeak") (list (concat greader-compile-command lang)) greader-compile-extra-parameters)))
+    (let
+	(data-is-writable
+	 (command
+	  (append '("espeak")
+		  (list (concat greader-compile-command lang))
+		  greader-compile-extra-parameters)))
 
       (with-temp-buffer
 	(call-process "espeak" nil t t "--version")
@@ -1111,7 +1168,7 @@ function is specifically designed to be executed by a hook."
        :command command))))
 
 (defun greader-compile--filter (&optional process str)
-  "Filter process for sudo."
+  "Filter PROCESS for sudo based on STR."
   (when (string-match "password" str)
     (process-send-string process (concat (read-passwd str) "\n")))
   (when (string-match "error" str)
@@ -1161,15 +1218,16 @@ When called from a function, you should specify SRC and DST, even if
   SRC and DST are declared as optional."
   (interactive "P")
   (unless greader-compile-default-source
-    (error "You must set or customize `greader-compile-default-source'"))
+    (error
+     "You must set or customize `greader-compile-default-source'"))
 
   (unless src
     (setq src (thing-at-point 'word t))
     (unless src
-      (setq src (read-string "Word to add:"))))
+      (setq src (read-string "Word to add: "))))
 
   (when (listp src)
-    (setq src (read-string "word to add:"))
+    (setq src (read-string "word to add: "))
     (if (equal src "")
 	(setq src (thing-at-point 'word t))))
   (unless dst
@@ -1179,10 +1237,12 @@ When called from a function, you should specify SRC and DST, even if
   (let ((lang-file
 	 (if (string-prefix-p "/" greader-compile-default-source)
 	     greader-compile-default-source
-	   (concat (car greader-compile-dictsource) (substring greader-espeak-language 0 2) "_" greader-compile-default-source))))
+	   (concat (car greader-compile-dictsource)
+		   (substring greader-espeak-language 0 2) "_"
+		   greader-compile-default-source))))
     (with-current-buffer (find-file-noselect lang-file)
       (goto-char (point-max))
-      (insert (concat src " " dst "\n"))
+      (insert src " " dst "\n")
       (save-buffer)
       (unless greader-compile-mode
 	(greader-compile)))))
@@ -1193,7 +1253,8 @@ When called from a function, you should specify SRC and DST, even if
   (if (string-match "/" greader-compile-default-source)
       (find-file greader-compile-default-source)
     (find-file (concat (car greader-compile-dictsource)
-		       greader-espeak-language "_" greader-compile-default-source))))
+		       greader-espeak-language "_"
+		       greader-compile-default-source))))
 
 (defcustom greader-backward-acoustic-feedback nil
   "If t, when point returns to the end of sentence, plays a beep."
@@ -1214,15 +1275,20 @@ When called from a function, you should specify SRC and DST, even if
   :type 'boolean)
 
 (defun greader--forward ()
+  "Internal forward sentence."
   (when (and (equal
-	 (point) greader--marker-backward) greader-reading-mode)
+	      (point) greader--marker-backward)
+	     greader-reading-mode)
     (greader-forward-sentence)
     (backward-char 2)
     (when greader-backward-acoustic-feedback
       (beep))))
 
 (defun greader--set-forward-timer ()
-  (setq greader--timer-backward(run-with-idle-timer greader-backward-seconds nil #'greader--forward)))
+  "Set the timer for `greader-backward'."
+  (setq greader--timer-backward
+	(run-with-idle-timer greader-backward-seconds nil
+			     #'greader--forward)))
 
 (defun greader-backward ()
   "Restart reading from start of sentence.
@@ -1351,7 +1417,8 @@ If INDEX is nil, use `greader-queue-current-element'."
     (user-error "Queue is emty"))
   (let ((result nil))
     (when (< greader-queue-current-element (length greader-queue))
-      (setq result (buffer-substring (car (elt greader-queue index)) (cdr (elt
+      (setq result (buffer-substring (car (elt greader-queue index))
+				     (cdr (elt
 									   greader-queue
 									   index)))))
     result))
@@ -1366,7 +1433,8 @@ If the current element is the last one, then return nil."
   (if (equal (1+ greader-queue-current-element) (length
 						 greader-queue))
       nil
-    (setq greader-queue-current-element (1+ greader-queue-current-element))
+    (setq greader-queue-current-element
+	  (1+ greader-queue-current-element))
     (greader-queue-get-element)))
 
 ;; This function returns the previous item in the queue, if it is
@@ -1492,7 +1560,8 @@ If it is a function, it must return a string."
         (modified nil)
         (result (copy-sequence input-string)))
     ;; Search for the location of the next link.
-    (while (setq pos (next-single-property-change pos 'mouse-face result))
+    (while
+	(setq pos (next-single-property-change pos 'mouse-face result))
       ;; Check if the location has the 'mouse-face' property set.
       (when (get-text-property pos 'mouse-face result)
         (setq modified t)
@@ -1594,8 +1663,10 @@ the reading process, returning nil in such cases."
 	    (goto-char (- (point-max) 1)))
           (funcall command)
           (greader-read))
-        t)  ; Returns t if no error occurs.
-    ((debug error) nil)))  ; Returns nil in case of an error.
+        t)
+					; Returns t if no error occurs.
+    ((debug error) nil)))
+					; Returns nil in case of an error.
 
 ;; greader-continuous-mode
 ;; This minor-mode will take care of adding to the hook
@@ -1617,7 +1688,8 @@ called the `info-scroll-up' function instead of finishing reading."
 	  (let ((error-string
 		 (concat
 		  "I can't determine the function for
-scroll in " (symbol-name major-mode) ".\nPlease add
+scroll in "
+		  (symbol-name major-mode) ".\nPlease add
 this major mode to the variable `greader-continuous-modes'")))
 	    (greader-continuous-mode -1)
 	    (user-error "%s" error-string)))
@@ -1629,6 +1701,20 @@ this major mode to the variable `greader-continuous-modes'")))
 ;; This is the complementary mode of "greader-continuous-mode", and
 ;; is used to repeatedly read the contents of a buffer or part of
 ;; it.
+(defvar-local greader-study-start-position 1
+  "The buffer position in which restart of reading will happen.")
+
+;;;###autoload
+(defun greader-study-set-position (pos)
+  "Set the position in which reading will restart.
+When called interactively, use the current position in the buffer."
+  (interactive "d")
+  (cond
+   ((not pos)
+    (user-error "Position must be a positive integer"))
+   ((< pos 1)
+    (user-error "position is not valid")))
+  (setq greader-study-start-position pos))
 
 ;; greader-study-restart is the function that will be added to the hook
 ;; `greader-before-finish-functions'.

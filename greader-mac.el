@@ -1,13 +1,26 @@
 ;;; greader-mac.el --- a back-end for Mac-Os tts. -*- lexical-binding: t; -*-
 ;; Copyright (C) 2017-2024  Free Software Foundation, Inc.
 
-;;; Code:
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
 
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see
+;; <http://www.gnu.org/licenses/>.
+
+;;; Code:
+(require 'subr-x)
 (defgroup greader-mac
   nil
   "Back-end of mac for greader."
-  :group 'greader
-  )
+  :group 'greader)
 
 (defcustom greader-mac-voice nil
   "Set the desired voice for the tts `say’.
@@ -49,7 +62,7 @@ providing completion."
   (when greader-mac-voice (concat "-v" greader-mac-voice)))
 
 ;;;###autoload
-(defun greader-mac (command &optional arg &rest _)
+(defun greader-mac (command &optional arg)
   "Back-end main function of greader-mac.
 COMMAND must be a string suitable for `make-process'."
   (pcase command
@@ -62,7 +75,7 @@ COMMAND must be a string suitable for `make-process'."
     ('lang
      (greader-mac-set-voice arg))
     ('set-voice
-     (call-interactively 'greader-mac-set-voice))
+     (call-interactively #'greader-mac-set-voice))
     ('rate
      (cond
       ((equal arg 'value)
@@ -71,6 +84,8 @@ COMMAND must be a string suitable for `make-process'."
        (greader-mac-set-rate arg))))
     ('punctuation
      nil)
+    ('get-rate
+     greader-mac-rate)
     (_
      'not-implemented)))
 (put 'greader-mac 'greader-backend-name "greader-mac")

@@ -1,10 +1,28 @@
-;; greader-espeak.el  -*- lexical-binding: t; -*-
+;;; greader-espeak.el --- greader back-end for espeak. -*- lexical-binding: t; -*-
 ;; Copyright (C) 2017-2024  Free Software Foundation, Inc.
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see
+;; <http://www.gnu.org/licenses/>.
+
+;;; commentary:
+
+;;; code:
+(require 'ring)
 (defgroup greader-espeak
   nil
   "Back-end of espeak for greader."
-  :group 'greader
-  )
+  :group 'greader)
 
 (defcustom greader-espeak-language "en"
   "Specifies the language of this back-end.
@@ -56,9 +74,10 @@ LANG must be recognized by espeak or espeak-ng."
 				    "no"))
 
 ;;;###autoload
-(defun greader-espeak (command &optional arg &rest _)
-  "Back-end main function of greader-espeak.
-COMMAND must be a string suitable for `make-process'."
+(defun greader-espeak (command &optional arg)
+  "Back-end main function for espeak.
+COMMAND must be a string suitable for `make-process'.
+ARG is applied depending on the command."
   (pcase command
     ('executable
      greader-espeak-executable-name)
@@ -91,8 +110,11 @@ COMMAND must be a string suitable for `make-process'."
 	  nil))))
     ('get-language
      greader-espeak-language)
+    ('get-rate
+     greader-espeak-rate)
     (_
      'not-implemented)))
 (put 'greader-espeak 'greader-backend-name "greader-espeak")
 
 (provide 'greader-espeak)
+;;; greader-espeak.el ends here
