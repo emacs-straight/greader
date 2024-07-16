@@ -1,0 +1,2 @@
+;; Generated package description from greader.el  -*- no-byte-compile: t -*-
+(define-package "greader" "0.11.13.0.20240712.232251" "Gnamù reader, send buffer contents to a speech engine" '((emacs "26.1") (seq "2.24") (compat "29.1.4.5")) :commit "7301a27f22bcae3e57a85e1e88d7917077b4d791" :authors '(("Michelangelo Rodriguez" . "michelangelo.rodriguez@gmail.com")) :maintainer '("Michelangelo Rodriguez" . "michelangelo.rodriguez@gmail.com") :keywords '("tools" "accessibility") :url "https://gitlab.com/michelangelo-rodriguez/greader")
