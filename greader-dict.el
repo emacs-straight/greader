@@ -162,7 +162,7 @@
 					(filter
 					 . "\%f")
 					(word . ""))
-  "item types and relative prefixes.")
+  "Item types and relative prefixes.")
 
 ;; This function saves the contents of the hash table.
 (defvar greader-dict-directory (concat user-emacs-directory
@@ -182,6 +182,7 @@
   "C-r d k" #'greader-dict-remove-entry
   "C-r d c" #'greader-dict-change-dictionary
   "C-r d l" #'greader-dict-pronounce-in-other-language
+  "C-r d m" #'greader-dict-modify-key
   "C-r d s" #'greader-dict-save)
 
 (defvar greader-dict--type-file-alternatives '(buffer mode global))
@@ -415,30 +416,21 @@ Return nil if KEY is not present in `greader-dictionary'."
    ((gethash word greader-dictionary)
     word)
    (t
-    (let ((reduced-dictionary (make-hash-table :test 'ignore-case)))
+    (let ((reduced-dictionary (make-hash-table :test 'ignore-case))
+	  (key nil))
       (dolist (item (greader-dict--get-matches 'match))
 	(puthash item (gethash item greader-dictionary)
 		 reduced-dictionary))
-      (let ((key nil))
-	(catch 'matched
-	  (maphash
-	   (lambda (k _v)
-	     (let* ((result (string-remove-suffix
-			     greader-dict-match-indicator k))
-		    (candidate-matches (string-split result "\\W" t)))
-	       (setq candidate-matches (sort candidate-matches
-					     (lambda (s1 s2) (>
-							      (length
-							       s1)
-							      (length
-							       s2)))))
-	       (dolist (candidate candidate-matches)
-		 ;; (message "%s" (concat "matching " candidate " against " word "..."))
-		 (when (string-match candidate word)
-		   ;; (message "Matched!")
-		   (setq key (concat k greader-dict-match-indicator))
-		   (throw 'matched key)))))
-	   reduced-dictionary)))))))
+      (catch 'key-matched
+	(maphash
+	 (lambda (k _v)
+	   (setq k
+		 (string-remove-suffix greader-dict-match-indicator k))
+	   (when (string-match k word)
+	     (setq key (concat k greader-dict-match-indicator))
+	     (throw 'key-matched key)))
+	 reduced-dictionary))
+      key      ))))
 
 ;; This function checks that, in the string you pass to it, there are
 ;; effectively words to be replaced. If so, use apis
@@ -529,7 +521,8 @@ user-error and aborts the reading process."
       (setq greader-filters (buffer-local-value 'greader-filters
 						greader-dict--current-reading-buffer))
       (setq greader-dict-toggle-filters (buffer-local-value
-					 'greader-dict-toggle-filters greader-dict--current-reading-buffer))
+					 'greader-dict-toggle-filters
+					 greader-dict--current-reading-buffer))
       (insert-file-contents (greader-dict--get-file-name))
       (when-let ((lines (string-lines (buffer-string) t)))
 	(dolist (line lines)
@@ -596,7 +589,11 @@ the current sentence."
       (unless key
 	(user-error "Input is empty: aborting"))
       (setq key (concat key greader-dict-match-indicator))
-      (setq value (read-string (concat "substitute regexp " key "with:
+      (setq value (read-string (concat "substitute match "
+				       (string-remove-suffix
+					greader-dict-match-indicator
+					key)
+				       " with:
 ")
 			       nil nil(gethash key greader-dictionary)))
       (greader-dict-add key value))
@@ -635,7 +632,9 @@ modify: "
 	(setq value (read-string (concat "substitute " key " with: ")
 				 nil nil
 				 (gethash key greader-dictionary)))
-	(greader-dict-add key value))))))
+	(greader-dict-add key value)))))
+  (deactivate-mark t))
+
 (declare-function hash-table-keys nil)
 (defun greader-dict-remove-entry (key)
   "Remove KEY from the dictionary.
@@ -847,18 +846,20 @@ If TYPE is `all', all items in the current dictionary will be included."
      (lambda (s1 s2)
        (string-greaterp s2 s1)))))
 (defun greader-dict-modify-key (arg)
-  "Modify a key (_NOT_ a value associated with it!).
+  "Modify a key \(_NOT_ a value associated with it!\).
 While `greader-dict-add-entry can modify either keys or associated
 values, `greader-dict-modify-key' allows you to modify the key
 itself, without modifying the associated value.
 if prefix ARG is non-nil, then this command proposes only keys that
-are classified as matches."
+are classified as matches.
+When called without a prefix, it modifies only keys that are
+classified as words."
   (interactive "P")
   (let ((key (read-string "key to modify: " nil nil (if arg
 							(greader-dict--get-matches
 							 'match)
 						      (greader-dict--get-matches
-						       'all))))
+						       'word))))
 	(new-key nil))
     (unless key
       (user-error "Key not valid"))
