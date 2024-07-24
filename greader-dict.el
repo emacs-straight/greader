@@ -425,10 +425,11 @@ Return nil if KEY is not present in `greader-dictionary'."
 		 reduced-dictionary))
       (catch 'key-matched
 	(maphash
-	 (lambda (k _v)
+	 (lambda (k v)
 	   (setq k
 		 (string-remove-suffix greader-dict-match-indicator k))
 	   (when (string-match k word)
+	     (greader-dict--add-match-as-word k word v)
 	     (setq key (concat k greader-dict-match-indicator))
 	     (throw 'key-matched key)))
 	 reduced-dictionary))
@@ -575,7 +576,7 @@ word, it will be added as a match.
 If neither the region is active nor point is on a word, simply asks
 for definition and substitution, without defaults.
 If called with prefix argument, ask for a match.
-In this case you can type a regular expression.
+In this case you can type a partial word or a regular expression.
 You can use regular expressions to, for example, craft filters instead
 of pronunciation rules.
 If the customizable variable
@@ -619,10 +620,13 @@ the current sentence."
 modify: "
 				   nil
 				   nil
-				   (append (list default-word)(when
-								  greader-dict-include-sentences-in-defaults
-								(greader-dict--get-word-alternatives
-								 (greader-get-sentence)))
+				   (append (list
+					    (substring-no-properties
+					     default-word))
+					   (when
+					       greader-dict-include-sentences-in-defaults
+					     (greader-dict--get-word-alternatives
+					      (greader-get-sentence)))
 					   (greader-dict--get-matches
 					    'word))))
 	    (setq value (read-string (concat "substitute word " key
@@ -881,7 +885,9 @@ classified as words."
   (if-let ((alternatives text))
       (progn
 	(setq alternatives nil)
-	(dolist (word (split-string text "\\W" t))
+	(dolist
+	    (word
+	     (split-string (substring-no-properties text) "\\W" t))
 	  (unless (member word alternatives)
 	    (push word alternatives)))
 	(reverse alternatives))
@@ -993,6 +999,29 @@ hash table."
        (while (re-search-forward k nil t)
 	 (replace-match v))))
    greader-filters))
+
+(defun greader-dict--add-match-as-word (key word replacement &optional
+					    original-word)
+  "Add WORD and REPLACEMENT to the current dictionary.
+This function is used internally, please use the normal entry-points
+to add your own items to the dictionary."
+
+  (let (value start end)
+    (string-match key word)
+    (setq start (match-beginning 0))
+    (setq end (match-end 0))
+    (when (> start 0)
+      (setq value (concat (substring word 0 start))))
+    (setq value (concat value replacement))
+    (when (> (length word) (length value))
+      (setq value (concat value (substring word end))))
+    (if (string-match key value)
+	(progn
+	  (setq original-word word)
+	  (greader-dict--add-match-as-word key value replacement
+					   original-word))
+      (setq key (or original-word word))
+      (greader-dict-add key value))))
 
 (provide 'greader-dict)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
