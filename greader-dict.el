@@ -165,9 +165,14 @@
   "Item types and relative prefixes.")
 
 ;; This function saves the contents of the hash table.
-(defvar greader-dict-directory (concat user-emacs-directory
-				       ".greader-dict/")
+(defvar-local greader-dict-directory (concat user-emacs-directory
+					     ".greader-dict/"
+					     (greader-get-language)
+					     "/")
   "The directory containing greader-dict files.")
+
+(defvar-local greader-dict-local-language (greader-get-language))
+
 (defvar-local greader-dict-filename "greader-dict.global"
   "File name where dictionary definitions are stored.")
 (defvar greader-dict--current-reading-buffer (current-buffer))
@@ -284,6 +289,8 @@ as a word definition."
     (add-hook 'greader-after-change-language-hook
 	      (lambda ()
 		(when greader-dict-mode
+		  (setq greader-dict-local-language
+			(greader-get-language))
 		  (greader-dict-read-from-dict-file)))))))
 
 ;; THanks to the loved and alwais useful elisp reference.
@@ -494,6 +501,9 @@ Return nil if KEY is not present in `greader-dictionary'."
     (setq greader-dict-filename (buffer-local-value
 				 'greader-dict-filename
 				 greader-dict--current-reading-buffer))
+    (setq greader-dict-local-language (buffer-local-value
+				       'greader-dict-local-language
+				       greader-dict--current-reading-buffer))
     (maphash
      (lambda (k v)
        (insert "\"" k "\"" "=" v "\n"))
@@ -673,9 +683,23 @@ argument, only if `greader-dict-mode' is enabled."
 (declare-function greader-get-language nil)
 (defun greader-dict--get-file-name ()
   "Return the absolute path of current dictionary file."
-  (concat greader-dict-directory (greader-get-language) "/"
-	  (buffer-local-value 'greader-dict-filename
-			      greader-dict--current-reading-buffer)))
+  (let ((language-part (car (last (split-string greader-dict-directory
+						"/" t)))))
+    (unless (equal language-part (buffer-local-value
+				  'greader-dict-local-language
+				  greader-dict--current-reading-buffer))
+      (setq greader-dict-directory (string-remove-suffix (concat
+							  language-part
+							  "/")
+							 greader-dict-directory))
+      (setq greader-dict-directory
+	    (concat greader-dict-directory (buffer-local-value
+					    'greader-dict-local-language
+					    greader-dict--current-reading-buffer)
+		    "/"))))
+  (concat greader-dict-directory (buffer-local-value
+				  'greader-dict-filename
+				  greader-dict--current-reading-buffer)))
 
 (defun greader-dict--set-file (type)
   "Set `greader-dict-filename' according to TYPE.
@@ -774,8 +798,7 @@ asked."
       (greader-dict--set-file (intern new-dict))
       (unless (file-exists-p (greader-dict--get-file-name))
 	(shell-command-to-string
-	 (concat "touch " greader-dict-filename)))
-      (greader-dict--update)
+	 (concat "touch " (greader-dict--get-file-name))))
       (greader-dict--update))))
 
 ;; (remove-hook 'buffer-list-update-hook #'greader-dict--update)))))
@@ -1004,24 +1027,27 @@ hash table."
 					    original-word)
   "Add WORD and REPLACEMENT to the current dictionary.
 This function is used internally, please use the normal entry-points
-to add your own items to the dictionary."
+to add your own items to the dictionary.
+This function works only when REPLACEMENT contains only word
+constituents."
 
-  (let (value start end)
-    (string-match key word)
-    (setq start (match-beginning 0))
-    (setq end (match-end 0))
-    (when (> start 0)
-      (setq value (concat (substring word 0 start))))
-    (setq value (concat value replacement))
-    (when (> (length word) (length value))
-      (setq value (concat value (substring word end))))
-    (if (string-match key value)
-	(progn
-	  (setq original-word word)
-	  (greader-dict--add-match-as-word key value replacement
-					   original-word))
-      (setq key (or original-word word))
-      (greader-dict-add key value))))
+  (unless (string-match "\\W" replacement nil t)
+    (let (value start end)
+      (string-match key word)
+      (setq start (match-beginning 0))
+      (setq end (match-end 0))
+      (when (> start 0)
+	(setq value (concat (substring word 0 start))))
+      (setq value (concat value replacement))
+      (when (> (length word) (length value))
+	(setq value (concat value (substring word end))))
+      (if (string-match key value)
+	  (progn
+	    (setq original-word word)
+	    (greader-dict--add-match-as-word key value replacement
+					     original-word))
+	(setq key (or original-word word))
+	(greader-dict-add key value)))))
 
 (provide 'greader-dict)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
