@@ -7,7 +7,7 @@
 ;; Keywords: tools, accessibility
 ;; URL: https://gitlab.com/michelangelo-rodriguez/greader
 
-;; Version: 0.11.14
+;; Version: 0.11.15
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -1727,7 +1727,7 @@ When called interactively, use the current position in the buffer."
   "restart reading of buffer or region."
   (if greader-region-mode
       (goto-char (region-beginning))
-    (goto-char (point-min)))
+    (goto-char greader-study-start-position))
   (greader-read) t)
 
 ;; greader-study-mode
