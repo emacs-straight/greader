@@ -7,7 +7,7 @@
 ;; Keywords: tools, accessibility
 ;; URL: https://gitlab.com/michelangelo-rodriguez/greader
 
-;; Version: 0.11.18
+;; Version: 0.12.1
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@
 (require 'seq)
 (require 'view)
 (defvar-local greader-timer-flag nil)
-
+(require 'find-func)
 (defvar greader-auto-tired-timer nil)
 (defvar greader-auto-tired-end-timer)
 (defvar greader-last-point nil)
@@ -62,6 +62,8 @@
 (defvar greader-backend-action #'greader--default-action)
 (defvar greader-status 'paused)
 (defvar greader-synth-process nil)
+(defvar-local greader-process-directory (file-name-directory (find-library-name "greader"))
+  "The directory where execution should start.")
 
 
 (define-obsolete-variable-alias 'greader-before-get-sentence-functions
@@ -124,9 +126,12 @@ If all the functions in the hook return nil, this function return nil."
 
 (defcustom
   greader-backends
-  '(greader-espeak greader-speechd)
-  "A list of functions that are back-ends for greader."
-  :tag "greader back-ends"
+  '(greader-espeak greader-speechd greader-mac greader-piper)
+  "A list of functions that are back-ends for greader.
+If you have already customized this variable and saved it, and if a
+new back-end was released or you have created yours, you should add
+those new back-ends manually,  so if you want to keep yourself
+updated on new back-ends, please check the pproject's repository."
   :type '(repeat function))
 
 (defcustom
@@ -440,10 +445,12 @@ available backends."
       (greader-debug "greader-read-asynchronous entered\n"))
   (run-hooks 'greader-before-read-hook)
   (greader-build-args)
+  (setq txt (substring-no-properties txt))
   (if (and txt (greader-sentence-needs-dehyphenation txt))
       (setq txt (greader-dehyphenate txt)))
   (let* ((txt (concat " " txt))
-         (backend (append greader-backend `(,txt))))
+         (backend (append greader-backend `(,txt)))
+	 (default-directory greader-process-directory))
     (and (stringp txt)
 	 (setq-local greader-synth-process (make-process
 				            :name "greader-backend"
@@ -528,7 +535,12 @@ Optional argument EVENT ."
 	'not-implemented))
       (setq arg (greader-call-backend 'extra))
       (setq args (append `(,arg) args))))
-    (setq greader-backend (append `(,greader-backend) args))))
+    (catch 'deleted
+      (dolist (argument args)
+	(when (equal argument 'not-implemented)
+	  (setq args (delete argument args))
+	  (throw 'deleted t))))
+      (setq greader-backend (append `(,greader-backend) args))))
 
 (defun greader-reset ()
   "Reset greader."
@@ -1788,7 +1800,7 @@ If START or END is not provided, consider the entire buffer."
 					       mode-line-misc-info))))
 	(throw 'banner-found t))
       nil)))
-
+(declare-function dtk-speak nil)
 (defun greader-estimated-time-update ()
   "update of estimated reading time.
 new data is stored in the mode-line.
