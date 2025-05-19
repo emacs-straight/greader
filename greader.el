@@ -1626,12 +1626,7 @@ the element, configure the `greader-enriched-tag' variable."
 ;; However, it will be possible to specify via the variable
 ;; customizable `greader-continuous-modes' functions associated with
 ;; particular major modes.
-(defcustom greader-continuous-modes
-  (if (package-installed-p 'nov)
-      (progn
-	(require 'nov)
-	'((nov-mode . nov-next-document)))
-    ())
+(defcustom greader-continuous-modes '((nov-mode . nov-next-document))
   "Alist mapping major modes to functions for greader-continuous
 guessing."
   :type '(alist :key-type (symbol :tag "mode-name") 
@@ -1734,8 +1729,11 @@ this major mode to the variable `greader-continuous-modes'")))
 ;;;###autoload
 (defun greader-study-set-position (pos)
   "Set the position in which reading will restart.
-When called interactively, use the current position in the buffer."
+When called interactively, use the current position in the buffer.
+If `greader-study-mode' is not enabled, enable it first."
   (interactive "d")
+  (unless greader-study-mode
+    (greader-study-mode 1))
   (cond
    ((not pos)
     (user-error "Position must be a positive integer"))
