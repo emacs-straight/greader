@@ -181,17 +181,24 @@
 ;; We use this variable to know if greader-dictionary is saved after
 ;; the last modification.
 (defvar-local greader-dict--saved-flag t)
+(defvar greader-dict-prefix-map (make-sparse-keymap)
+  "Keymap for `greader-dict' commands.")
 
-;; greader-dict-mode.
-(defvar-keymap greader-dict-mode-map
-  :doc "keymap for `greader-dict-mode'."
-  "C-r d i" #'greader-dict-info
-  "C-r d a" #'greader-dict-add-entry
-  "C-r d k" #'greader-dict-remove-entry
-  "C-r d c" #'greader-dict-change-dictionary
-  "C-r d l" #'greader-dict-pronounce-in-other-language
-  "C-r d m" #'greader-dict-modify-key
-  "C-r d s" #'greader-dict-save)
+(defvar greader-dict-filters-prefix-map (make-sparse-keymap)
+  "Keymap for `greader-dict' filters commands.")
+
+(define-key greader-dict-prefix-map "i" #'greader-dict-info)
+(define-key greader-dict-prefix-map "a" #'greader-dict-add-entry)
+(define-key greader-dict-prefix-map "k" #'greader-dict-remove-entry)
+(define-key greader-dict-prefix-map "c" #'greader-dict-change-dictionary)
+(define-key greader-dict-prefix-map "l" #'greader-dict-pronounce-in-other-language)
+(define-key greader-dict-prefix-map "m" #'greader-dict-modify-key)
+(define-key greader-dict-prefix-map "s" #'greader-dict-save)
+(define-key greader-dict-prefix-map "f" greader-dict-filters-prefix-map)
+
+(define-key greader-dict-filters-prefix-map "a" #'greader-dict-filter-add)
+(define-key greader-dict-filters-prefix-map "m" #'greader-dict-filter-modify)
+(define-key greader-dict-filters-prefix-map "k" #'greader-dict-filter-remove)
 
 (defvar greader-dict--type-file-alternatives '(buffer mode global))
 
@@ -227,20 +234,6 @@ buffer."
 					greader-dict--current-reading-buffer))
      ,@body))
 
-(defvar-keymap greader-dict-filter-map
-  :doc "key bindings for greader-dict filter feature."
-  "C-r d f a" #'greader-dict-filter-add
-  "C-r d f m" #'greader-dict-filter-modify
-  "C-r r" #'isearch-backward
-  "C-r d f k" #'greader-dict-filter-remove)
-
-(defvar-keymap greader-dict-filter-map
-  :doc "key bindings for greader-dict filter feature."
-  "C-r d f a" #'greader-dict-filter-add
-  "C-r d f m" #'greader-dict-filter-modify
-  "C-r r" #'isearch-backward
-  "C-r d f k" #'greader-dict-filter-remove)
-
 ;; filters.
 ;; filters allow users to define arbitrary regexps to be replaced
 ;; either with empty strings or by another string.
@@ -270,7 +263,6 @@ You can use the usual `\\\\' expressions, shy groups and all the power
 of regexps.
 If you are interested in how to write a regexp please consult the info
 node `(emacs) Regexps'."
-  :keymap greader-dict-filter-map
   :lighter " gr-filters"
   (when greader-dict-toggle-filters
     (setq greader-filters (make-hash-table :test 'ignore-case))
@@ -370,8 +362,7 @@ as a word definition."
 	       (concat (match-string 1)
 		       (gethash match greader-dictionary)
 		       (match-string 3))))
-	  (replace-match replacement nil t))
-	(goto-char (point-min))))))
+	  (replace-match replacement nil t))))))
 
 ;; This function adds to the `greader-dictionary' variable the
 ;; key/value pair that you pass as arguments.
@@ -382,7 +373,9 @@ A value of 0 indicates saving immediately."
 (defun greader-dict-add (word replacement)
   "Add the WORD REPLACEMENT pair to `greader-dictionary'.
 If you want to add a partial replacement, you should
-add `\*'to the end of the WORD string parameter."
+add `\*'to the end of the WORD string parameter.
+This function only checks that WORD and REPLACEMENT are not the same.
+Other checks for record integrity are responsibility of the caller."
   ;; We prevent an infinite loop if disallowing that key and values
   ;; are the same.
   (unless replacement
@@ -625,7 +618,8 @@ the current sentence."
 					key)
 				       " with:
 ")
-			       nil nil(gethash key greader-dictionary)))
+			       nil nil(gethash key
+					       greader-dictionary)))
       (greader-dict-add key value))
      ((region-active-p)
       (when (= (count-words(region-beginning) (region-end)) 1)
@@ -658,13 +652,22 @@ modify: "
 					    'word))))
 	    (setq value (read-string (concat "substitute word " key
 					     " with: ")
-				     (gethash key greader-dictionary)))
+				     (gethash key
+					      greader-dictionary)))
+	    (when (string-match "[[:punct:]]" value)
+	      (user-error "Replacement cannot contain punctuation signs.
+If you want to listen a sign, please include it literally \(wrote by
+letters\) in the replacement"))
 	    (greader-dict-add key value))
 	(setq key (read-string "Word to add or modify: " nil nil
 			       (greader-dict--get-matches 'word)))
 	(setq value (read-string (concat "substitute " key " with: ")
 				 nil nil
 				 (gethash key greader-dictionary)))
+	(when (string-match "[[:punct:]]" value)
+	  (user-error "Replacement cannot contain punctuation signs.
+If you want to listen a sign, please include it literally \(wrote by
+letters\) in the replacement"))
 	(greader-dict-add key value)))))
   (deactivate-mark t))
 
@@ -974,7 +977,12 @@ in the current sentence."
   (string-suffix-p greader-dict-filter-indicator key))
 
 (defun greader-dict-filter-add (key value)
-  "Add KEY as a filter with associated VALUE."
+  "Add KEY as a filter with associated VALUE.
+KEY should be a regexp, and value can contain \"shi-groups\".
+You should hobey using punctuation signs in your replacement, apart
+from those that constitute the pattern.
+Adding a punctuation sign in the replacement part of a filter is
+considered undefined behavior."
   (interactive
    (let*
        ((key (read-string "filter (regexp) to add or modify: " nil nil
