@@ -7,7 +7,7 @@
 ;; Keywords: tools, accessibility
 ;; URL: https://gitlab.com/michelangelo-rodriguez/greader
 
-;; Version: 0.13.0
+;; Version: 0.13.1
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -44,6 +44,11 @@
 ;;; Code:
 (require 'seq)
 (require 'view)
+(defvar greader-dict-prefix-map)
+(defvar greader-dict-mode)
+(defvar greader-dict-toggle-filters)
+(declare-function greader-dict--update nil)
+
 (defvar-local greader-timer-flag nil)
 (require 'find-func)
 (defvar greader-auto-tired-timer nil)
@@ -299,12 +304,36 @@ if set to t, when you call function `greader-read', that function sets a
     (when greader-queue-mode
       (greader-queue-mode -1))
     (greader-load-backends))))
+(defvar greader--current-buffer nil
+  "This variable is used by `greader-reading-mode'
+to know which buffer is currently being read.")
+
+(defun greader-current-buffer-p (&optional buffer)
+  "Return t if BUFFER is the current reading buffer, nil otherwise."
+  (unless buffer
+    (setq buffer (current-buffer)))
+  (equal buffer greader--current-buffer))
+
+(defun greader--set-current-buffer (&optional buffer)
+  "Set `greader--current-buffer' using BUFFER.
+If BUFFER is omitted or nil, use `current-buffer' as BUFFER."
+  (unless buffer
+    (setq buffer (current-buffer)))
+  (unless greader--current-buffer
+    (setq greader--current-buffer buffer)))
+
 ;;;###autoload
 (define-minor-mode greader-reading-mode
   nil
   :interactive nil
   :keymap greader-reading-map
-  :lighter " reading...")
+  :lighter " reading..."
+  (if greader-reading-mode
+      (progn
+	(setq greader--current-buffer (current-buffer))
+	(add-hook 'greader-before-get-sentence-hook #'greader--set-current-buffer))
+    (setq greader--current-buffer nil)
+    (remove-hook 'greader-before-get-sentence-hook #'greader--set-current-buffer)))
 
 (defun greader-set-bookmark-for-greader ()
   "Imposta il segnalibro ad ogni interruzione della lettura."
@@ -539,7 +568,7 @@ Optional argument EVENT ."
       (unless (eq extra 'not-implemented)
         (push extra args)))
     (setq greader-backend (append greader-backend
-                                (delete 'not-implemented (nreverse args))))))
+                                  (delete 'not-implemented (nreverse args))))))
 
 (defun greader-reset ()
   "Reset greader."
@@ -639,7 +668,10 @@ function, point jumps at the last position you called command `greader-read'."
 
 (defun greader-stop ()
   "Stop reading of document.
-If `greader-dict-mode' and/or `greader-dict-toggle-filters' are active, the dictionary of pronunciation rules will be updated after calling all the hooks."
+If `greader-dict-mode' and/or `greader-dict-toggle-filters' are
+active, the dictionary of pronunciation rules will be updated after
+calling all the hooks."
+
   (interactive)
   (cond
    ((and (> greader-elapsed-time 0) greader-timer-flag)
@@ -1728,21 +1760,6 @@ this major mode to the variable `greader-continuous-modes'")))
 (defvar-local greader-study-start-position 1
   "The buffer position in which restart of reading will happen.")
 
-;;;###autoload
-(defun greader-study-set-position (pos)
-  "Set the position in which reading will restart.
-When called interactively, use the current position in the buffer.
-If `greader-study-mode' is not enabled, enable it first."
-  (interactive "d")
-  (unless greader-study-mode
-    (greader-study-mode 1))
-  (cond
-   ((not pos)
-    (user-error "Position must be a positive integer"))
-   ((< pos 1)
-    (user-error "position is not valid")))
-  (setq greader-study-start-position pos))
-
 ;; greader-study-restart is the function that will be added to the hook
 ;; `greader-before-finish-functions'.
 ;; The function simply returns to the beginning of the buffer or the
@@ -1766,6 +1783,21 @@ If `greader-region-mode' is enabled, restart will behave accordingly."
 		  #'greader-study-restart 0 t))
     (remove-hook 'greader-before-finish-functions
 		 #'greader-study-restart t)))
+
+;;;###autoload
+(defun greader-study-set-position (pos)
+  "Set the position in which reading will restart.
+When called interactively, use the current position in the buffer.
+If `greader-study-mode' is not enabled, enable it first."
+  (interactive "d")
+  (unless greader-study-mode
+    (greader-study-mode 1))
+  (cond
+   ((not pos)
+    (user-error "Position must be a positive integer"))
+   ((< pos 1)
+    (user-error "position is not valid")))
+  (setq greader-study-start-position pos))
 
 ;; Estimated reading time calculation.
 (defvar-local greader--buffer-words nil

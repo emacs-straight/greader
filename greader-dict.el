@@ -140,8 +140,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; 
 ;;; Code:
-
-(require 'greader)
+(defvar greader--current-buffer)
 
 (defgroup greader-dict nil
   "String substitution module for greader."
@@ -177,6 +176,7 @@
 
 (defvar-local greader-dict-filename "greader-dict.global"
   "File name where dictionary definitions are stored.")
+
 (defvar greader-dict--current-reading-buffer (current-buffer))
 ;; We use this variable to know if greader-dictionary is saved after
 ;; the last modification.
@@ -220,18 +220,22 @@ buffer."
   (declare (indent defun))
   `(with-temp-buffer
      (setq greader-dictionary (buffer-local-value 'greader-dictionary
-						  greader-dict--current-reading-buffer))
+						  (or
+						   greader--current-buffer
+						   greader-dict--current-reading-buffer)))
      (setq greader-dict-filename (buffer-local-value
 				  'greader-dict-filename
-				  greader-dict--current-reading-buffer))
+				  (or greader--current-buffer greader-dict--current-reading-buffer)))
      (setq greader-dict-local-language (buffer-local-value
 					'greader-dict-local-language
-					greader-dict--current-reading-buffer))
+					(or greader--current-buffer greader-dict--current-reading-buffer)))
      (setq greader-filters (buffer-local-value 'greader-filters
-					       greader-dict--current-reading-buffer))
+					       (or
+						greader--current-buffer
+						greader-dict--current-reading-buffer)))
      (setq greader-dict-toggle-filters (buffer-local-value
 					'greader-dict-toggle-filters
-					greader-dict--current-reading-buffer))
+					(or greader--current-buffer greader-dict--current-reading-buffer)))
      ,@body))
 
 ;; filters.
@@ -822,14 +826,18 @@ asked."
 (defvar greader-reading-mode)
 (defun greader-dict--update ()
   (when greader-dict-toggle-filters
-    (setq greader-dict--current-reading-buffer (current-buffer))
+    (setq greader-dict--current-reading-buffer (or
+						greader--current-buffer
+						(current-buffer)))
     (let ((dict-mode-state greader-dict-mode))
       (greader-dict-mode 1)
       (greader-dict-read-from-dict-file t)
       (unless dict-mode-state
 	(greader-dict-mode -1))))
   (when greader-dict-mode
-    (setq greader-dict--current-reading-buffer (current-buffer))
+    (setq greader-dict--current-reading-buffer (or
+						greader--current-buffer
+						(current-buffer)))
     (unless greader-dict--saved-flag
       (greader-dict-write-file))
     ;; I decided to keep the following code for historical reasons and
@@ -841,6 +849,7 @@ asked."
        (buffer-local-value 'greader-dictionary
 			   greader-dict--current-reading-buffer))
       (greader-dict-read-from-dict-file t))))
+
 ;; Questa funzione è solo di utilità e potrebbe essere rimossa o
 ;; modificata in qualsiasi momento.
 (defun greader-dict-beep ()
