@@ -10,6 +10,7 @@ Greader is an Emacs package that reads the content of the current buffer aloud, 
 *   [Keybindings](#keybindings)
 *   [Commands](#commands)
 *   [Minor Modes](#minor-modes)
+*   [Backends](#backends)
 *   [Customization](#customization)
 *   [License](#license)
 
@@ -60,6 +61,8 @@ If desired, you can change the prefix. See the command `greader-set-map-prefix`.
 | `C-r l` | `greader-set-language` | Set the language for the TTS engine. |
 | `C-r b` | `greader-change-backend` | Cycle through available backends. |
 | `C-r t` | `greader-toggle-timer` | Toggle the reading timer. |
+| `C-r s` | `greader-toggle-tired-mode` | Toggle tired/relax mode. |
+| `C-r f` | `greader-get-attributes` | Report text attributes at point. |
 | `M-x greader-set-timer` | | Set the duration for the timer. |
 
 ### Navigation
@@ -68,6 +71,10 @@ The following commands work when you are in `greader-reading-mode', which happen
 |---|---|---|
 | `<left>` | `greader-backward` | Move to the previous sentence. |
 | `<right>` | `greader-forward` | Move to the next sentence. |
+| `p` | `greader-toggle-punctuation` | Toggle reading of punctuation characters. |
+| `.` | `greader-stop-with-timer` | Stop reading and reset the timer. |
+| `+` | `greader-inc-rate` | Increase speech rate by 10 WPM. |
+| `-` | `greader-dec-rate` | Decrease speech rate by 10 WPM. |
 
 ## Commands
 
@@ -127,30 +134,61 @@ Greader provides several minor modes to extend its functionality:
 
     ### Usage
 
-    *   **Enable the mode:** `M-x greader-dict-mode`
-    *   **Add an entry:** `C-r d a` (`greader-dict-add-entry`).
-        *   With no prefix, it adds a "word" entry.
-        *   With a prefix argument (`C-u`), it adds a "match" entry.
-        *   If a region is active, it will propose adding the selected text as a "match".
-    *   **Remove an entry:** `C-r d k` (`greader-dict-remove-entry`).
-    *   **Modify a key:** `C-r d m` (`greader-dict-modify-key`).
-    *   **Change dictionary visibility:** `C-r d c` (`greader-dict-change-dictionary`).
+    **Enable the mode:** `M-x greader-dict-mode`
+
+    | Keybinding | Command | Description |
+    |---|---|---|
+    | `C-r d a` | `greader-dict-add-entry` | Add entry. No prefix: whole-word; `C-u`: substring match; active region: proposes region as match. |
+    | `C-r d k` | `greader-dict-remove-entry` | Remove an entry. |
+    | `C-r d m` | `greader-dict-modify-key` | Modify an existing entry key. |
+    | `C-r d c` | `greader-dict-change-dictionary` | Change dictionary visibility (global / mode / buffer). |
+    | `C-r d l` | `greader-dict-pronounce-in-other-language` | Pronounce a word using a different language. |
+    | `C-r d s` | `greader-dict-save` | Save the current dictionary to disk immediately. |
+    | `C-r d i` | `greader-dict-info` | Display information about the current dictionary. |
 
     ### Filters
 
     Filters are an advanced feature that allows you to use arbitrary regular expressions for substitutions. They are more powerful than "word" or "match" entries but can be less efficient.
 
-    *   **Toggle filters:** `M-x greader-dict-toggle-filters`
-    *   **Add a filter:** `greader-dict-filter-add`
-    *   **Remove a filter:** `greader-dict-filter-remove`
-    *   **Modify a filter:** `greader-dict-filter-modify`
-
-    ### Pronounce in Another Language
-
-    You can use `greader-dict-pronounce-in-other-language` (`C-r d l`) to hear how a word is pronounced in a different language, using your configured TTS backend.
+    | Keybinding | Command | Description |
+    |---|---|---|
+    | `M-x greader-dict-filters-mode` | | Toggle filter processing on/off (minor mode). |
+    | `C-r d f a` | `greader-dict-filter-add` | Add a new regex filter. |
+    | `C-r d f k` | `greader-dict-filter-remove` | Remove a filter. |
+    | `C-r d f m` | `greader-dict-filter-modify` | Modify an existing filter. |
 *   **`greader-study-mode`:** Repeatedly read a buffer or region.
 *   **`greader-estimated-time-mode`:** Display estimated reading time.
 *   **`greader-auto-bookmark-mode`:** Automatically save a bookmark when you stop reading.
+
+### `greader-queue-mode`
+
+`greader-queue-mode` lets you assemble a playlist of text regions within the current buffer and read them in sequence. Useful when you want to read only selected parts of a document, or when the region is non-contiguous. When `greader-queue-mode` is active, `greader-mode` is temporarily suspended; it is re-enabled automatically when you disable `greader-queue-mode`.
+
+**Enable:** `M-x greader-queue-mode`
+
+| Keybinding | Command | Description |
+|---|---|---|
+| `C-r RET` | `greader-queue-add-element` | Add the selected region (or current position) to the queue. |
+| `C-r SPC` | `greader-queue-read` | Start reading the queue. |
+| `C-r <left>` | `greader-queue-backward` | Move to the previous element in the queue. |
+| `C-r <right>` | `greader-queue-forward` | Move to the next element in the queue. |
+| `C-r .` | `greader-queue-stop` | Stop reading. |
+
+Additional commands available via `M-x`: `greader-queue-remove-element`, `greader-queue-reset-queue`.
+
+### `greader-compile-mode`
+
+`greader-compile-mode` is for users who want to edit and recompile eSpeak-NG voice dictionaries from within Emacs. It is not needed for ordinary text-to-speech use.
+
+**Prerequisites:** Set `greader-compile-dictsource` to the directory containing your eSpeak-NG dictionary source files before enabling this mode.
+
+**Enable:** `M-x greader-compile-mode`
+
+| Keybinding | Command | Description |
+|---|---|---|
+| `C-r c` | `greader-compile-at-point` | Add the word at point to the dictionary and recompile. With a prefix argument, prompts for the word. |
+
+`greader-compile-goto-source` — Visit the dictionary source file currently used by `greader-compile-at-point`.
 
 ### `greader-translate-mode`
 
@@ -183,6 +221,129 @@ For the translation to work, you need to configure a few variables:
 *   **Internet Connection**: An internet connection is required to contact the translation services.
 *   **Privacy**: Using `greader-translate-with-google` involves sending the buffer's text to external services (like Google Translate). This may have privacy implications. Users are subject to the terms of service and privacy policies of the translation service provider. It is recommended to be aware of what data is being sent.
 
+## Backends
+
+Switch backends with `C-r b` (`greader-change-backend`) or by setting `greader-current-backend` in your configuration.
+
+### eSpeak / eSpeak NG
+
+The default backend on most systems. Install from your distribution or from [espeak-ng](https://github.com/espeak-ng/espeak-ng). No additional Emacs configuration is required beyond having `espeak-ng` on your `PATH`.
+
+### Speech Dispatcher
+
+Middleware layer that can route to many underlying synthesizers. Greader can start the Speech Dispatcher daemon automatically. See [Speech Dispatcher](http://devel.freebsoft.org/speechd).
+
+### Piper
+
+Neural TTS backend that produces high-quality, natural-sounding speech. Requires two things:
+
+1. The `piper` binary, available from [piper](https://github.com/rhasspy/piper) or via your distribution.
+2. The `piper.sh` wrapper script shipped with greader. The script must be executable and accessible on your `PATH` or at the path set in `greader-piper-script-path`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `greader-piper-script-path` | `piper.sh` in greader directory | Full path to the `piper.sh` wrapper script. |
+| `greader-piper-rate` | `130` | Speech rate in words per minute. |
+
+```emacs-lisp
+(setq greader-piper-script-path "/usr/local/bin/piper.sh")
+(setq greader-piper-rate 150)
+```
+
+### macOS (`say`)
+
+Uses the built-in macOS `say` command. No external installation required.
+
+| Variable | Default | Description |
+|---|---|---|
+| `greader-mac-voice` | `nil` | Voice name to use (e.g., `"Samantha"`). `nil` uses the system default. |
+| `greader-mac-rate` | `200` | Speech rate in words per minute. |
+
+```emacs-lisp
+(setq greader-mac-voice "Samantha")
+(setq greader-mac-rate 180)
+```
+
+## Audiobook Creation
+
+The `greader-audiobook-buffer` command converts the current buffer into a collection of WAV
+audio files, optionally transcoding them to MP3/M4A/FLAC and bundling them into a ZIP or M4B
+audiobook container.
+
+### Backend support
+
+Audiobook generation uses the **current greader TTS backend** (`greader-current-backend`), so
+the same voice, language, and rate you use for live reading are applied to the audiobook.
+Supported backends:
+
+| Backend | Notes |
+|---|---|
+| eSpeak / eSpeak NG | **Recommended.** Fast, stable, and reliable on any text. |
+| Piper | High-quality neural TTS. Requires `piper.sh` v2 (see below). May be unstable on long or complex texts. |
+| macOS `say` | Native macOS speech; outputs 16-bit PCM WAV. **See stability note below.** |
+| Speech Dispatcher | **Not supported** — `spd-say` cannot write WAV files. |
+
+**eSpeak is the only backend with consistently optimal performance for audiobook
+generation.** AI-based backends (Piper, macOS `say` with neural voices such as Siri) are
+designed for short, interactive utterances and can become unreliable when converting long,
+complex texts such as books:
+
+- They may produce truncated or garbled audio blocks while reporting success (exit code 0).
+  The `greader-audiobook-min-wav-size` check catches the worst cases, but subtle corruption
+  may go undetected.
+- On very long sentences or paragraphs they may **hang indefinitely**. Because block
+  conversion is synchronous, a hung backend freezes Emacs entirely; `greader-audiobook-on-error`
+  cannot intervene. Use `C-g` to interrupt and kill the process manually.
+
+If you want to use a neural voice for an audiobook, consider splitting the source buffer into
+smaller chunks before converting.
+
+### Piper and audiobook generation
+
+The `piper.sh` wrapper script shipped with greader supports an optional second argument: the
+output WAV file path. When present, piper writes to that file instead of playing audio in
+real time. No additional Emacs configuration is required; the model path is read from
+`piper.sh` as usual.
+
+If you maintain a custom copy of `piper.sh` in your `PATH`, update it to the current version
+from the greader repository to enable audiobook support.
+
+### Error handling
+
+AI-based backends can produce silent failures (corrupted or near-empty audio) alongside
+outright crashes. Greader detects both:
+
+- **Non-zero exit code** — the backend process failed; the error buffer (`*espeak-output*`,
+  `*piper-output*`, `*say-output*`, …) will contain details.
+- **WAV too small** — the output file is below `greader-audiobook-min-wav-size` bytes even
+  if the backend reported success; the block is treated as corrupt.
+
+The variable `greader-audiobook-on-error` controls what happens when a block fails:
+
+| Value | Behaviour |
+|---|---|
+| `stop` | Signal an error and abort conversion immediately (default). |
+| `skip` | Log the block number and continue with the next block. |
+| `ask` | Ask interactively whether to skip or abort. |
+
+When blocks are skipped a summary message lists their numbers at the end of conversion.
+
+### Audiobook customization
+
+Use `M-x customize-group RET greader-audiobook RET` for the full list of options. Key
+variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `greader-audiobook-base-directory` | `~/.emacs.d/audiobooks/` | Root directory for generated audiobooks. |
+| `greader-audiobook-block-size` | `"15"` | Block size: a string means minutes, a number means characters. |
+| `greader-audiobook-transcode-wave-files` | `nil` | Transcode WAV blocks via ffmpeg. |
+| `greader-audiobook-transcode-format` | `"mp3"` | Target format for transcoding. |
+| `greader-audiobook-on-error` | `stop` | Error policy: `stop`, `skip`, or `ask`. |
+| `greader-audiobook-min-wav-size` | `1000` | Minimum WAV size in bytes; smaller files are treated as corrupt. |
+| `greader-audiobook-create-m4b` | `nil` | Bundle all blocks into a single M4B audiobook file. |
+| `greader-audiobook-compress` | `t` | Compress the audiobook directory into a ZIP file. |
+
 ## Customization
 
 You can customize Greader by setting variables in your Emacs configuration file. Use `M-x customize-group RET greader RET` to see the available options.
@@ -193,6 +354,10 @@ Some of the customizable variables are:
 *   `greader-current-backend`: The default TTS backend to use.
 *   `greader-timer`: The default duration for the reading timer.
 *   `greader-auto-tired-mode-time`: The time to automatically enable tired mode.
+*   `greader-soft-timer`: If `t` (the default), finishes the current sentence before stopping at timer expiration. Set to `nil` for a hard cutoff.
+*   `greader-backward-acoustic-feedback`: If `t`, plays a brief beep when the cursor returns to the previous reading position after backward navigation. Default `nil`.
+*   `greader-backward-seconds`: Number of seconds to wait at the previous sentence before automatically returning to the reading position. Default `5`.
+*   `greader-dict-save-after-time`: Idle time in seconds before the dictionary is saved automatically. Default `30`. (Requires `greader-dict-mode`.)
 
 ## License
 
