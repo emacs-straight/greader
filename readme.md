@@ -60,10 +60,10 @@ If desired, you can change the prefix. See the command `greader-set-map-prefix`.
 | `SPC` | `greader-stop` | Stop reading (only when you are in `greader-reading-mode', which happens when you call `greader-read').|
 | `C-r l` | `greader-set-language` | Set the language for the TTS engine. |
 | `C-r b` | `greader-change-backend` | Cycle through available backends. |
-| `C-r t` | `greader-toggle-timer` | Toggle the reading timer. |
-| `C-r s` | `greader-toggle-tired-mode` | Toggle tired/relax mode. |
+| `C-r t` | `greader-timer-mode` | Toggle the reading timer. |
+| `C-r s` | `greader-tired-mode` | Toggle tired/relax mode. |
 | `C-r f` | `greader-get-attributes` | Report text attributes at point. |
-| `M-x greader-set-timer` | | Set the duration for the timer. |
+| `M-x greader-set-timer` | | Set the duration for the timer (in minutes).  When `greader-auto-tired-mode' is active, only sets the value without enabling `greader-timer-mode' directly. |
 
 ### Navigation
 The following commands work when you are in `greader-reading-mode', which happens when you call `greader-read'.
@@ -156,6 +156,37 @@ Greader provides several minor modes to extend its functionality:
     | `C-r d f a` | `greader-dict-filter-add` | Add a new regex filter. |
     | `C-r d f k` | `greader-dict-filter-remove` | Remove a filter. |
     | `C-r d f m` | `greader-dict-filter-modify` | Modify an existing filter. |
+*   **`greader-timer-mode`** (`C-r t`): Stop reading automatically after a configurable number of minutes.
+
+    When enabled, a countdown timer is armed each time `greader-read` starts. When the timer expires, reading stops. By default (`greader-soft-timer t`) the current sentence is finished before stopping; set `greader-soft-timer` to `nil` for an immediate hard cutoff.
+
+    Relevant variables:
+    - `greader-timer` — duration in minutes (default 10).
+    - `greader-soft-timer` — if `t` (default), finish the current sentence before stopping.
+
+*   **`greader-tired-mode`** (`C-r s`): A "falling asleep" mode. Enabling it implicitly enables `greader-timer-mode`.
+
+    When the reading timer expires, greader arms a second, idle-based timer. Two things can then happen:
+
+    1. **You press any key** (you are still awake): the idle timer is cancelled and reading resumes automatically from where it stopped. The key press is consumed — it does not execute its normal command.
+    2. **You do nothing for `greader-tired-time` seconds** (you fell asleep): the point is moved back to where you originally called `greader-read`, so next time you open the buffer you find the text you actually heard.
+
+    When `greader-soft-timer` is enabled (the default), the idle timer is armed only after the last sentence has finished being read, not at the moment the reading timer expires. This ensures that pressing a key while the final sentence is still playing does not trigger an unwanted restart.
+
+    Calling `greader-stop` explicitly while the last sentence is playing (soft-timer case) cancels the tired-mode wait entirely — point is not moved back.
+
+    Disabling `greader-tired-mode` also disables `greader-timer-mode`, unless you had enabled the timer independently beforehand.
+
+    Relevant variables:
+    - `greader-tired-time` — idle seconds to wait before moving point back (default 60).
+
+*   **`greader-auto-tired-mode`**: Automatically activate `greader-tired-mode` (and by extension `greader-timer-mode`) within a configurable nightly time window, and deactivate it in the morning.
+
+    Enable it once with `M-x greader-auto-tired-mode`; it then manages tired mode on its own every day. The time window is checked every second by an internal timer. Intervals that cross midnight (e.g. 22:00–07:00) are handled correctly.
+
+    Relevant variables:
+    - `greader-auto-tired-mode-time` — hour to activate tired mode, as a string (default `"22"`).
+    - `greader-auto-tired-time-end` — hour to deactivate tired mode, as a string (default `"07"`).
 *   **`greader-study-mode`:** Repeatedly read a buffer or region.
 *   **`greader-estimated-time-mode`:** Display estimated reading time.
 *   **`greader-auto-bookmark-mode`:** Automatically save a bookmark when you stop reading.
@@ -180,13 +211,25 @@ Additional commands available via `M-x`: `greader-queue-remove-element`, `greade
 
 `greader-compile-mode` is for users who want to edit and recompile eSpeak-NG voice dictionaries from within Emacs. It is not needed for ordinary text-to-speech use.
 
-**Prerequisites:** Set `greader-compile-dictsource` to the directory containing your eSpeak-NG dictionary source files before enabling this mode.
+**Prerequisites:** Set `greader-compile-dictsource` to the list of directories containing your eSpeak-NG dictionary source files before enabling this mode:
+
+```elisp
+(setq greader-compile-dictsource '("/path/to/espeak-ng-data/dictsource/"))
+```
+
+Paths must end with a slash. The variable is a list, so you can specify multiple directories.
+
+**File naming convention:** eSpeak-NG dictionary source files must follow the pattern `XX_suffix`, where `XX` is a two-letter language code (e.g., `en_extra`, `it_rules`). `greader-compile-mode` uses the filename to infer the language to compile.
 
 **Enable:** `M-x greader-compile-mode`
+
+**Auto-compilation on save:** Once enabled, saving any dictionary source file whose directory is in `greader-compile-dictsource` automatically runs `espeak --compile=XX` for the corresponding language. If the eSpeak-NG data directory is not writable by your user, you will be prompted for your administrator password.
 
 | Keybinding | Command | Description |
 |---|---|---|
 | `C-r c` | `greader-compile-at-point` | Add the word at point to the dictionary and recompile. With a prefix argument, prompts for the word. |
+
+`greader-compile` — Compile eSpeak-NG definitions interactively. With a prefix argument, prompts for the language code; without, infers it from the current file name.
 
 `greader-compile-goto-source` — Visit the dictionary source file currently used by `greader-compile-at-point`.
 
@@ -352,9 +395,11 @@ Some of the customizable variables are:
 
 *   `greader-backends`: A list of available TTS backends.
 *   `greader-current-backend`: The default TTS backend to use.
-*   `greader-timer`: The default duration for the reading timer.
-*   `greader-auto-tired-mode-time`: The time to automatically enable tired mode.
-*   `greader-soft-timer`: If `t` (the default), finishes the current sentence before stopping at timer expiration. Set to `nil` for a hard cutoff.
+*   `greader-timer`: Reading timer duration in minutes (default 10). Used by `greader-timer-mode`.
+*   `greader-soft-timer`: If `t` (the default), finishes the current sentence before stopping at timer expiration. Set to `nil` for an immediate cutoff.
+*   `greader-tired-time`: Idle seconds to wait after the reading timer expires before moving point back (default 60). Used by `greader-tired-mode`.
+*   `greader-auto-tired-mode-time`: Hour (as a string, e.g. `"22"`) at which `greader-auto-tired-mode` activates tired mode.
+*   `greader-auto-tired-time-end`: Hour (as a string, e.g. `"07"`) at which `greader-auto-tired-mode` deactivates tired mode. Intervals crossing midnight are supported.
 *   `greader-backward-acoustic-feedback`: If `t`, plays a brief beep when the cursor returns to the previous reading position after backward navigation. Default `nil`.
 *   `greader-backward-seconds`: Number of seconds to wait at the previous sentence before automatically returning to the reading position. Default `5`.
 *   `greader-dict-save-after-time`: Idle time in seconds before the dictionary is saved automatically. Default `30`. (Requires `greader-dict-mode`.)
