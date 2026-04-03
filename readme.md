@@ -58,7 +58,7 @@ If desired, you can change the prefix. See the command `greader-set-map-prefix`.
 |---|---|---|
 | `C-r <spc>` | `greader-read` | Start reading from point. |
 | `SPC` | `greader-stop` | Stop reading (only when you are in `greader-reading-mode', which happens when you call `greader-read').|
-| `C-r l` | `greader-set-language` | Set the language for the TTS engine. |
+| `C-r l` | `greader-set-language` | Set the language/voice for the TTS engine. Backends that support voice enumeration (mac, espeak) present a `completing-read` prompt. With a prefix argument (`C-u C-r l`), the selection is saved as the new global default to `custom-file`. |
 | `C-r b` | `greader-change-backend` | Cycle through available backends. |
 | `C-r t` | `greader-timer-mode` | Toggle the reading timer. |
 | `C-r s` | `greader-tired-mode` | Toggle tired/relax mode. |
@@ -145,6 +145,7 @@ Greader provides several minor modes to extend its functionality:
     | `C-r d l` | `greader-dict-pronounce-in-other-language` | Pronounce a word using a different language. |
     | `C-r d s` | `greader-dict-save` | Save the current dictionary to disk immediately. |
     | `C-r d i` | `greader-dict-info` | Display information about the current dictionary. |
+    | `C-r d M` | `greader-dict-merge-dictionary` | Merge an auxiliary dictionary into the current one. |
 
     ### Filters
 
@@ -156,6 +157,28 @@ Greader provides several minor modes to extend its functionality:
     | `C-r d f a` | `greader-dict-filter-add` | Add a new regex filter. |
     | `C-r d f k` | `greader-dict-filter-remove` | Remove a filter. |
     | `C-r d f m` | `greader-dict-filter-modify` | Modify an existing filter. |
+
+    ### Dictionary Merging
+
+    You can merge one or more auxiliary dictionaries into the active
+    dictionary using `greader-dict-merge-dictionary` (`C-r d M`). Merged
+    entries are applied during reading but are **never written back** to
+    the main dictionary file, keeping the original dictionaries independent.
+
+    | Keybinding | Command | Description |
+    |---|---|---|
+    | `C-r d M` | `greader-dict-merge-dictionary` | Merge an auxiliary dictionary. Without argument, re-applies all configured auxiliaries. |
+
+    Merge configurations can be made persistent via `greader-dict-merge-save`:
+
+    - `t` — save automatically after each merge.
+    - `ask` — prompt whether to save (the default).
+    - `nil` — never save; merges are discarded on exit.
+
+    The configuration file is set by `greader-dict-merge-file` (default:
+    `.merges` in the dictionary directory). When `greader-dict-mode`
+    starts, saved merge configurations are loaded and applied automatically.
+
 *   **`greader-timer-mode`** (`C-r t`): Stop reading automatically after a configurable number of minutes.
 
     When enabled, a countdown timer is armed each time `greader-read` starts. When the timer expires, reading stops. By default (`greader-soft-timer t`) the current sentence is finished before stopping; set `greader-soft-timer` to `nil` for an immediate hard cutoff.
@@ -299,11 +322,14 @@ Uses the built-in macOS `say` command. No external installation required.
 
 | Variable | Default | Description |
 |---|---|---|
-| `greader-mac-voice` | `nil` | Voice name to use (e.g., `"Samantha"`). `nil` uses the system default. |
+| `greader-mac-voice` | `nil` | Voice name to use (e.g., `"Alex"`). `nil` uses the system default. |
 | `greader-mac-rate` | `200` | Speech rate in words per minute. |
 
+Use `C-r l` to select a voice interactively from the list of all voices installed on the
+system. Use `C-u C-r l` to also save the choice as the new global default.
+
 ```emacs-lisp
-(setq greader-mac-voice "Samantha")
+(setq greader-mac-voice "Alex")
 (setq greader-mac-rate 180)
 ```
 
@@ -371,6 +397,31 @@ The variable `greader-audiobook-on-error` controls what happens when a block fai
 
 When blocks are skipped a summary message lists their numbers at the end of conversion.
 
+#### Expected-size deviation check
+
+In addition to the minimum-size floor, Greader estimates the expected WAV size from the
+word count of the block and the current TTS rate (WPM). If the actual file size is less
+than `(expected × (100 - tolerance) / 100)`, the block is considered suspiciously short
+and the action is controlled by `greader-audiobook-on-size-mismatch`. A WAV larger than
+expected is never flagged — TTS backends normally produce more audio than the word count
+alone would predict (pauses, abbreviation expansion, etc.).
+
+| Value | Behaviour |
+|---|---|
+| `ignore` | Do nothing; continue normally. |
+| `warn` | Log a message to `*Messages*` and continue (default). |
+| `error` | Signal an error; `greader-audiobook-on-error` policy applies. |
+| `retry` | Re-convert the block up to `greader-audiobook-size-mismatch-max-retries` times; signal an error if still mismatched. During each retry a `retrying (X/N)` message is shown. |
+| `ask` | Prompt the user; answering no signals an error, yes continues. |
+| _function_ | A function called with `(filename wav-size expected-size)`; must return one of the symbols above, or `nil` (treated as `ignore`). |
+
+Blocks shorter than `greader-audiobook-size-check-min-words` words (default 10) are
+exempt from the check: short blocks such as chapter headings, footnotes, and section
+endings produce unreliable estimates because TTS backends add proportionally more
+silence and overhead relative to the text content. Set to `0` to check all blocks.
+
+Set `greader-audiobook-size-check-tolerance` to `0` to disable the check entirely.
+
 ### Audiobook customization
 
 Use `M-x customize-group RET greader-audiobook RET` for the full list of options. Key
@@ -382,8 +433,13 @@ variables:
 | `greader-audiobook-block-size` | `"15"` | Block size: a string means minutes, a number means characters. |
 | `greader-audiobook-transcode-wave-files` | `nil` | Transcode WAV blocks via ffmpeg. |
 | `greader-audiobook-transcode-format` | `"mp3"` | Target format for transcoding. |
-| `greader-audiobook-on-error` | `stop` | Error policy: `stop`, `skip`, or `ask`. |
+| `greader-audiobook-on-error` | `stop` | Hard-error policy: `stop`, `skip`, or `ask`. |
 | `greader-audiobook-min-wav-size` | `1000` | Minimum WAV size in bytes; smaller files are treated as corrupt. |
+| `greader-audiobook-expected-sample-rate` | `22050` | Sample rate (Hz) used to estimate expected WAV size. |
+| `greader-audiobook-size-check-tolerance` | `50` | Lower-bound tolerance %: flag if WAV < expected×(100-tol)/100; `0` disables. |
+| `greader-audiobook-size-check-min-words` | `10` | Min word count to run the size check; `0` checks all blocks. |
+| `greader-audiobook-on-size-mismatch` | `warn` | Action on size deviation: `ignore`, `warn`, `error`, `retry`, `ask`, or a function. |
+| `greader-audiobook-size-mismatch-max-retries` | `2` | Max re-conversion attempts when `on-size-mismatch` is `retry`. |
 | `greader-audiobook-create-m4b` | `nil` | Bundle all blocks into a single M4B audiobook file. |
 | `greader-audiobook-compress` | `t` | Compress the audiobook directory into a ZIP file. |
 
@@ -403,6 +459,8 @@ Some of the customizable variables are:
 *   `greader-backward-acoustic-feedback`: If `t`, plays a brief beep when the cursor returns to the previous reading position after backward navigation. Default `nil`.
 *   `greader-backward-seconds`: Number of seconds to wait at the previous sentence before automatically returning to the reading position. Default `5`.
 *   `greader-dict-save-after-time`: Idle time in seconds before the dictionary is saved automatically. Default `30`. (Requires `greader-dict-mode`.)
+*   `greader-dict-merge-save`: Controls persistence of merge configurations. `t` saves automatically, `ask` prompts each time (the default), `nil` never saves. (Requires `greader-dict-mode`.)
+*   `greader-dict-merge-file`: Path of the file used to persist merge configurations. Default: `.merges` in the dictionary directory.
 
 ## License
 

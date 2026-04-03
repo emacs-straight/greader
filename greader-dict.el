@@ -116,6 +116,32 @@
 ;; This module offers a command
 ;; `greader-dict-pronounce-in-other-language' that can be used for
 ;; earing how the tts pronounces a word in another language.
+;;
+;; Dictionary merging
+;;
+;; You can merge one or more auxiliary dictionaries into the current one
+;; using `greader-dict-merge-dictionary' (C-r d M).
+;; Merged entries are loaded into memory and applied during reading, but
+;; are never written back to the main dictionary file.  This means that
+;; the original dictionaries remain independent: any change to the main
+;; dictionary will not affect the auxiliary ones, and vice versa.
+;;
+;; Merge configurations can be made persistent across Emacs sessions.
+;; The behaviour is controlled by the customizable variable
+;; `greader-dict-merge-save':
+;;   t    - always save merge configurations automatically.
+;;   ask  - ask whether to save after each merge (the default).
+;;   nil  - never save; merges are lost when Emacs exits.
+;;
+;; Saved merge configurations are stored in the file pointed to by
+;; `greader-dict-merge-file' (default: `.merges' in the dictionary
+;; directory).  When `greader-dict-mode' is enabled, any previously
+;; saved merge configurations are loaded and applied automatically.
+;;
+;; You can merge additional dictionaries at any time by calling
+;; `greader-dict-merge-dictionary' again.  Calling it without an
+;; argument re-applies all auxiliary dictionaries currently recorded for
+;; the active dictionary.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; 
 ;;; Change Log:
@@ -189,6 +215,7 @@
 (define-key greader-dict-prefix-map "l" #'greader-dict-pronounce-in-other-language)
 (define-key greader-dict-prefix-map "m" #'greader-dict-modify-key)
 (define-key greader-dict-prefix-map "s" #'greader-dict-save)
+(define-key greader-dict-prefix-map "M" #'greader-dict-merge-dictionary)
 (define-key greader-dict-prefix-map "f" greader-dict-filters-prefix-map)
 
 (define-key greader-dict-filters-prefix-map "a" #'greader-dict-filter-add)
@@ -203,6 +230,8 @@
   "Hash table containing our filters.")
 
 (defvar greader-dict-filter-indicator "%f")
+
+(defvar greader-dict-filters-mode)
 
 ;; This macro calls `with-temp-buffer', setting all the necessary
 ;; local variables to useful values. This means that all sensible
@@ -237,6 +266,125 @@ buffer."
 					'greader-dict-filters-mode
 					(or greader--current-buffer greader-dict--current-reading-buffer)))
      ,@body))
+
+;; merging dictionaries.
+
+(defun greader-dict--merged-p (key)
+  "Return t if KEY is merged, nil otherwise."
+  (get-text-property 0 'greader-dict-merged key))
+
+(defun greader-dict--merge (key)
+  "Return KEY with the `greader-dict-merged' text property set."
+  (if (greader-dict--merged-p key)
+      key
+    (propertize key 'greader-dict-merged t)))
+
+;; merge customization
+(defvar greader-dict-merge-dictionaries-alist ()
+  "Alist of merged dictionaries.
+Each entry has the form (MAIN-DICT AUX1 AUX2 ...) where MAIN-DICT is
+the absolute path of the main dictionary and each AUXn is the path of
+an auxiliary dictionary merged into it.
+Auxiliary files should reside in the same directory as the main
+dictionary; this prevents accidentally mixing dictionaries for different
+languages.
+Use `greader-dict-merge-dictionary' to add entries to this list.")
+
+(defcustom greader-dict-merge-save 'ask
+  "Controls persistence of merge configurations across Emacs sessions.
+If t, merge configurations are saved automatically after each merge.
+If `ask', you are prompted whether to save after each merge.
+If nil, merge configurations are never saved."
+  :type '(choice (const :tag "Always save"   t)
+		 (const :tag "Ask every time" ask)
+		 (const :tag "Do not save at all" nil)))
+
+(defcustom greader-dict-merge-file (file-name-concat
+				    greader-dict-directory ".merges")
+  "File used to persist merge configurations.
+The file stores `greader-dict-merge-dictionaries-alist' so that merges
+survive Emacs restarts.  See also `greader-dict-merge-save'."
+  :type '(file))
+
+(defun greader-dict-merge-save-to-file (&optional filename)
+  "Save `greader-dict-merge-dictionaries-alist' to FILENAME.
+If FILENAME is nil, use `greader-dict-merge-file'."
+  (unless filename
+    (setq filename greader-dict-merge-file))
+  (with-greader-dict-temp-buffer
+    (print greader-dict-merge-dictionaries-alist (current-buffer))
+    (write-region (point-min) (point-max) filename)))
+
+(defun greader-dict-merge-get ()
+  "Return merged dictionaries for this dictionary.
+Return nil if this dictionary does not contain merged dictionaries."
+  (if-let* ((dictionaries (assoc (greader-dict--get-file-name) greader-dict-merge-dictionaries-alist)))
+      dictionaries
+    nil))
+
+(defun greader-dict-load-merges (&optional filename)
+  "Populate `greader-dict-merge-dictionaries-alist' with contents of
+  FILENAME.
+Return FILENAME contents, or nil if FILENAME is empty or does not
+exist or some other system errors."
+  (unless filename
+    (setq filename greader-dict-merge-file))
+  (with-greader-dict-temp-buffer
+    (if (file-exists-p filename)
+	(progn
+	  (insert-file-contents filename)
+	  (if-let* ((result (read (current-buffer))))
+	      (setq greader-dict-merge-dictionaries-alist result)
+	    nil))
+      nil)))
+
+(defun greader-dict-merge--check-candidate (filename)
+  "Predicate for `read-file-name'.
+Return t for every file except the current dictionary itself."
+  (not (equal (expand-file-name filename)
+	      (expand-file-name (greader-dict--get-file-name)))))
+
+(defun greader-dict-merge--dictionaries ()
+  "Merge auxiliary dictionaries listed for the current dictionary.
+Reads all files in the cdr of the matching entry in
+`greader-dict-merge-dictionaries-alist', marking every loaded entry
+as merged so it is never written back to the main dictionary file."
+  (when-let* ((dictionaries (greader-dict-merge-get)))
+    (dolist (dictionary (cdr dictionaries))
+      (greader-dict-read-from-dict-file t dictionary t))))
+
+(defun greader-dict-merge-dictionary (&optional filename)
+  "Merge contents of FILENAME into `greader-dictionary'.
+FILENAME entries are marked as merged and are never saved to the main
+dictionary file.
+If FILENAME is nil, re-merge all auxiliaries already recorded in
+`greader-dict-merge-dictionaries-alist' for the current dictionary."
+  (interactive
+   (list
+    (read-file-name "Dictionary file to merge: " greader-dict-directory nil t nil
+		    #'greader-dict-merge--check-candidate)))
+  (if (null filename)
+      (greader-dict-merge--dictionaries)
+    (let ((main (greader-dict--get-file-name)))
+      (if-let* ((entry (assoc main greader-dict-merge-dictionaries-alist)))
+	  (unless (member filename (cdr entry))
+	    (setcdr entry (append (cdr entry) (list filename))))
+	(push (list main filename) greader-dict-merge-dictionaries-alist)))
+    (greader-dict-read-from-dict-file t filename t)
+    (cond
+     ((eq greader-dict-merge-save t)
+      (greader-dict-merge-save-to-file))
+     ((eq greader-dict-merge-save 'ask)
+      (when (y-or-n-p "Save merge configuration? ")
+	(greader-dict-merge-save-to-file))))))
+
+(defvar-keymap greader-dict-filter-map
+  :doc "key bindings for greader-dict filter feature."
+  "C-r d f a" #'greader-dict-filter-add
+  "C-r d f m" #'greader-dict-filter-modify
+  "C-r r" #'isearch-backward
+  "C-r d f k" #'greader-dict-filter-remove)
+
 
 ;; filters.
 ;; filters allow users to define arbitrary regexps to be replaced
@@ -311,6 +459,8 @@ as a word definition."
     (setq greader-dictionary (make-hash-table :test 'ignore-case))
     (setq greader-dict--current-reading-buffer (current-buffer))
     (greader-dict-read-from-dict-file)
+    (greader-dict-load-merges)
+    (greader-dict-merge--dictionaries)
     (add-hook 'greader-after-get-sentence-functions
 	      #'greader-dict--replace-wrapper 1)
     (add-hook 'buffer-list-update-hook #'greader-dict--update)
@@ -378,18 +528,19 @@ as a word definition."
   "Amount of idleness to wait before saving dictionary data.
 A value of 0 indicates saving immediately."
   :type 'number)
-(defun greader-dict-add (word replacement)
-  "Add the WORD REPLACEMENT pair to `greader-dictionary'.
+(defun greader-dict-add (word replacement &optional merge)
+  "Add the WORD REPLACEMent pair to `greader-dictionary'.
 If you want to add a partial replacement, you should
 add `\*'to the end of the WORD string parameter.
-This function only checks that WORD and REPLACEMENT are not the same.
-Other checks for record integrity are responsibility of the caller."
+If MERGE is non-nil, then add the pair as merged."
   ;; We prevent an infinite loop if disallowing that key and values
   ;; are the same.
   (unless replacement
     (setq replacement ""))
   (when (string-equal-ignore-case word replacement)
-    (user-error "Key and value are the same, aborting"))
+    (user-error "key and value are the same, aborting"))
+  (when merge
+    (setq word (greader-dict--merge word)))
   (puthash word replacement greader-dictionary)
   (setq greader-dict--saved-flag nil)
   (cond
@@ -527,36 +678,42 @@ rebuilding it on every call."
   (with-greader-dict-temp-buffer
     (maphash
      (lambda (k v)
-       (insert "\"" k "\"" "=" v "\n"))
+       (unless (greader-dict--merged-p k)
+	 (insert "\"" k "\"" "=" v "\n")))
      greader-dictionary)
     (write-region (point-min) (point-max)
 		  (greader-dict--get-file-name)))
   (setq greader-dict--saved-flag t))
 
-(defun greader-dict-read-from-dict-file (&optional force)
-  "Populate `greader-dictionary' with the contents of
+(defun greader-dict-read-from-dict-file
+    (&optional force filename merge)
+  "populate `greader-dictionary' with the contents of
 `greader-dict-filename'.
 If FORCE is non-nil, reading happens even if there are definitions not
 yet saved.
 If FORCE is nil \(the default\) then this function generates an
-user-error and aborts the reading process."
+user-error and aborts the reading process.
+If filename is specified, then use that file for reading instead of
+the standard.
+If merge is non-nil, then merge only the definitions."
   ;; This code is to provide a variable
   ;; `greader-dictionary' by default usable in the buffer
   ;; temporary where the replacements defined in `greader-after-get-sentence-functions' occur.
   (when (and (not greader-dict--saved-flag) (not force))
     (user-error "Dictionary has been modified and not yet saved"))
-  (when (file-exists-p (greader-dict--get-file-name))
-    (with-greader-dict-temp-buffer
-      (insert-file-contents (greader-dict--get-file-name))
-      (when-let* ((lines (string-lines (buffer-string) t)))
-	(dolist (line lines)
-	  (setq line (split-string line "=" ))
-	  (setf (car line) (car (split-string (car line) "\"" t)))
-	  (let ((greader-dict-save-after-time -1))
-	    (greader-dict-add (car line) (car (cdr line)))))
-	(greader-dict--filter-init)
-	(setq greader-dict--saved-flag t)))
-    (add-hook 'buffer-list-update-hook #'greader-dict--update)))
+  (let ((filename (or filename (greader-dict--get-file-name))))
+    (when (file-exists-p filename)
+      (with-greader-dict-temp-buffer
+	(insert-file-contents filename)
+	(when-let* ((lines (string-lines (buffer-string) t)))
+	  (dolist (line lines)
+	    (setq line (split-string line "=" ))
+	    (setf (car line) (car (split-string (car line) "\"" t)))
+	    (let ((greader-dict-save-after-time -1))
+	      (greader-dict-add (car line) (car (cdr line)) merge)))
+	  (greader-dict--filter-init)
+	  (setq greader-dict--saved-flag t)))))
+  (add-hook 'buffer-list-update-hook #'greader-dict--update))
 
 ;; Command for saving interactively dictionary data.
 (defun greader-dict-save ()
@@ -782,6 +939,7 @@ Means it exists a file called \"greader-dict.global\" in
      ((string-equal "greader-dict.global" greader-dict-filename)
       'global)
      (t 'global))))
+
 (defun greader-dict--type-alternatives ()
   "Return the list of currently valid alternatives for dictionary."
   (let ((alternatives nil))

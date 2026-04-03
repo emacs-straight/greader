@@ -24,6 +24,7 @@
 | `greader-audiobook.el` | Convert buffers to audio files (WAV/MP3/etc.) |
 | `greader-translate.el` | Translate text before reading (via google-translate) |
 | `greader-dict-tests.el` | ERT tests for greader-dict |
+| `greader-backend-tests.el` | ERT tests for backend CLI generation after voice/language selection |
 | `greader-autoloads.el` | Auto-generated autoloads |
 | `greader-pkg.el` | Auto-generated package descriptor |
 | `readme.md` | User documentation |
@@ -62,6 +63,17 @@ Each backend is a function that responds to `command` symbols:
 - `extra` — additional flags
 - `get-language` — return current language string
 - `get-rate` — return current rate as a number
+- `set-voice` — interactive voice/language selection via `completing-read`; returns the
+  **plain voice or language name** (e.g. `"Alex"` or `"it"`), **not** a CLI flag; returns
+  `'not-implemented` if the backend has no enumerable voice/language list.
+  `greader-set-language` calls this first; if `'not-implemented`, falls back to
+  `read-string`. **Supported by**: mac (`greader--mac-get-voices`), espeak
+  (`greader--espeak-list-voices`). **Not supported**: speechd, piper.
+- `save-voice` — persist the voice/language name passed as `arg` to `custom-file` via
+  `customize-save-variable`; makes the selection the new global default across sessions.
+  Called by `greader-set-language` when invoked with a prefix argument (`C-u C-r l`).
+  **Supported by**: mac (saves `greader-mac-voice`), espeak (saves
+  `greader-espeak-language`). **Not supported**: speechd, piper.
 - `audio-write` — write WAV to file for audiobook generation; arg is `(list TEXT FILENAME)`;
   returns exit code (0 = success) or `'not-implemented` if unsupported.
   **Supported by**: espeak, mac, piper. **Not supported**: speechd.
@@ -119,6 +131,7 @@ All commands are under the prefix `C-r` (configurable via `greader-keymap-prefix
 | `C-r d l` | Pronounce word in other language |
 | `C-r d s` | Save dictionary |
 | `C-r d i` | Show dictionary info |
+| `C-r d M` | Merge an auxiliary dictionary |
 | `C-r d f a` | Add filter (regex) |
 | `C-r d f k` | Remove filter |
 | `C-r d f m` | Modify filter |
@@ -152,6 +165,23 @@ Dictionary visibility levels:
 - **buffer** — applied to current buffer only
 
 Dictionaries are stored as files in `greader-dict-directory`.
+
+### Dictionary Merging
+
+Auxiliary dictionaries can be merged into the active one with
+`greader-dict-merge-dictionary` (`C-r d M`). Merged entries are marked
+via the `greader-dict-merged` text property and are **never written** to
+the main dictionary file (`greader-dict-write-file` skips them). Merge
+configurations are stored in `greader-dict-merge-dictionaries-alist` and
+optionally persisted to `greader-dict-merge-file`. On `greader-dict-mode`
+startup, `greader-dict-load-merges` and `greader-dict-merge--dictionaries`
+reload saved merges automatically.
+
+Key functions:
+- `greader-dict-merge-dictionary` — interactive entry point (`C-r d M`)
+- `greader-dict-merge--dictionaries` — internal; reads all auxiliaries from the alist
+- `greader-dict-merge-save-to-file` — persists the alist to disk
+- `greader-dict-load-merges` — loads the alist from disk
 
 ### greader-dict internals — known pitfalls
 
@@ -207,5 +237,11 @@ Tests are in `greader-dict-tests.el` (covers dict functionality).
 - `greader-tired-mode` internals: the wakeup intercept uses `greader--tired-intercept-mode`, a transient buffer-local minor mode with a `[t]` catch-all keymap. Any key press calls `greader--tired-wakeup` (swallowing the command) and resumes reading. With `greader-soft-timer` on, the idle timer is armed in `greader--default-action` (after the last sentence finishes) via `greader--tired-pending`, not in `greader-stop-timer-callback`. `greader-stop` clears `greader--tired-pending` to prevent spurious restarts. All cleanup paths go through `greader--tired-cleanup`.
 - `greader-audiobook-convert-block` uses `greader-call-backend 'audio-write` — do not
   hardcode espeak-ng there. Error handling: non-zero exit code + WAV size check
-  (`greader-audiobook-min-wav-size`). Policy controlled by `greader-audiobook-on-error`
-  (stop/skip/ask). Error buffer name derived via `greader-audiobook--backend-error-buffer`.
+  (`greader-audiobook-min-wav-size`). Hard-error policy: `greader-audiobook-on-error`
+  (stop/skip/ask). Expected-size deviation check: `greader-audiobook-on-size-mismatch`
+  (ignore/warn/error/retry/ask/function); tolerance via
+  `greader-audiobook-size-check-tolerance`; min-words threshold via
+  `greader-audiobook-size-check-min-words` (blocks below threshold are skipped
+  silently); retry limit via `greader-audiobook-size-mismatch-max-retries`.
+  Error buffer name derived via
+  `greader-audiobook--backend-error-buffer`.
