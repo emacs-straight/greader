@@ -44,7 +44,6 @@
 ;;; Code:
 (require 'seq)
 (require 'view)
-(defvar greader-dict-prefix-map)
 (defvar greader-dict-mode)
 (defvar greader-dict-filters-mode)
 (declare-function greader-dict--update nil)
@@ -295,8 +294,6 @@ if set to t, when you call function `greader-read', that function sets a
     (define-key map (kbd "<right>")   #'greader-forward)
     map))
 
-(eval-after-load 'greader-dict
-  '(define-key greader-prefix-keymap "d" greader-dict-prefix-map))
 (defvar greader-queue-mode)
 ;;;###autoload
 (define-minor-mode greader-mode
@@ -844,6 +841,18 @@ Optional argument TIMER-IN-MINS timer in minutes (integer)."
   (unless (or greader-timer-mode greader-auto-tired-mode)
     (greader-timer-mode 1))
   (setq-local greader-timer timer-in-mins))
+
+(defun greader-timer-remaining ()
+  "Display the time remaining before the reading timer expires.
+The remaining time is shown in the minibuffer as minutes and seconds."
+  (interactive)
+  (if (and greader-timer-mode (timerp greader-stop-timer))
+      (let* ((total (greader-convert-mins-to-secs greader-timer))
+             (remaining (max 0 (- total greader-elapsed-time)))
+             (mins (/ remaining 60))
+             (secs (% remaining 60)))
+        (message "Time remaining: %d min %d sec" mins secs))
+    (message "No active timer.")))
 
 (defun greader-setup-timers ()
   "Set up timers, that is, call `run-at-time' using settings you have specified."
