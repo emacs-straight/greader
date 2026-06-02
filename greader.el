@@ -7,7 +7,7 @@
 ;; Keywords: tools, accessibility
 ;; URL: https://gitlab.com/michelangelo-rodriguez/greader
 
-;; Version: 0.19.0
+;; Version: 0.19.2
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -248,16 +248,18 @@ if set to t, when you call function `greader-read', that function sets a
   :tag "use register")
 (defvar greader-reading-mode)
 (defvar greader-mode)
+(defvar greader--current-buffer)
 (defun greader-set-reading-keymap ()
   "Set greader's keymap when reading."
   (setq greader-mode nil)
-  (setq greader-reading-mode t))
+  (setq greader-reading-mode t)
+  (setq greader--current-buffer (current-buffer)))
 
 (defun greader-set-greader-keymap ()
   "Set greader's keymap when not reading."
-
   (setq greader-mode t)
-  (setq greader-reading-mode nil))
+  (setq greader-reading-mode nil)
+  (setq greader--current-buffer nil))
 
 (define-obsolete-variable-alias 'greader-map 'greader-mode-map "2022")
 
@@ -266,33 +268,31 @@ if set to t, when you call function `greader-read', that function sets a
   :type 'string
   :group 'greader)
 
-(defvar greader-prefix-keymap
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "s")   #'greader-tired-mode)
-    (define-key map (kbd "r")   #'isearch-backward)
-    (define-key map (kbd "SPC") #'greader-read)
-    (define-key map (kbd "l")   #'greader-set-language)
-    (define-key map (kbd "t")   #'greader-timer-mode)
-    (define-key map (kbd "f")   #'greader-get-attributes)
-    (define-key map (kbd "b")   #'greader-change-backend)
-    (define-key map (kbd "c") #'greader-compile-at-point)
-    map))
+(defvar greader-prefix-keymap (make-sparse-keymap))
+(define-key greader-prefix-keymap (kbd "s")   #'greader-tired-mode)
+(define-key greader-prefix-keymap (kbd "r")   #'isearch-backward)
+(define-key greader-prefix-keymap (kbd "SPC") #'greader-read)
+(define-key greader-prefix-keymap (kbd "l")   #'greader-set-language)
+(define-key greader-prefix-keymap (kbd "t")   #'greader-timer-mode)
+(define-key greader-prefix-keymap (kbd "f")   #'greader-get-attributes)
+(define-key greader-prefix-keymap (kbd "b")   #'greader-change-backend)
+(define-key greader-prefix-keymap (kbd "c")   #'greader-compile-at-point)
 
-(defvar greader-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd greader-keymap-prefix) greader-prefix-keymap)
-    map))
+(defvar greader-mode-map (make-sparse-keymap))
+(define-key greader-mode-map (kbd greader-keymap-prefix) greader-prefix-keymap)
 
-(defvar greader-reading-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "SPC") #'greader-stop)
-    (define-key map (kbd "p")   #'greader-toggle-punctuation)
-    (define-key map (kbd ".")   #'greader-stop-with-timer)
-    (define-key map (kbd "+")   #'greader-inc-rate)
-    (define-key map (kbd "-")   #'greader-dec-rate)
-    (define-key map (kbd "<left>")   #'greader-backward)
-    (define-key map (kbd "<right>")   #'greader-forward)
-    map))
+(defvar greader-reading-map (make-sparse-keymap))
+(define-key greader-reading-map (kbd "SPC")      #'greader-stop)
+(define-key greader-reading-map (kbd "p")        #'greader-toggle-punctuation)
+(define-key greader-reading-map (kbd ".")        #'greader-stop-with-timer)
+(define-key greader-reading-map (kbd "+")        #'greader-inc-rate)
+(define-key greader-reading-map (kbd "-")        #'greader-dec-rate)
+(define-key greader-reading-map (kbd "<left>")   #'greader-backward)
+(define-key greader-reading-map (kbd "<right>")  #'greader-forward)
+(define-key greader-reading-map (kbd "C-<left>")  #'greader-move-by-seconds-backward)
+(define-key greader-reading-map (kbd "C-<right>") #'greader-move-by-seconds-forward)
+(define-key greader-reading-map (kbd "M-<left>")  #'greader-move-by-minutes-backward)
+(define-key greader-reading-map (kbd "M-<right>") #'greader-move-by-minutes-forward)
 
 (defvar greader-queue-mode)
 ;;;###autoload
@@ -937,13 +937,11 @@ Enabling this mode implicitly enables `greader-timer-mode'."
     (unless greader-timer-enabled-interactively
       (greader-timer-mode -1))))
 
-(defvar greader--tired-intercept-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [t] #'greader--tired-wakeup)
-    map)
+(defvar greader--tired-intercept-map (make-sparse-keymap)
   "Keymap used by `greader--tired-intercept-mode'.
 Binds every key to `greader--tired-wakeup', swallowing the original
 command so that only reading is resumed.")
+(define-key greader--tired-intercept-map [t] #'greader--tired-wakeup)
 
 (define-minor-mode greader--tired-intercept-mode
   "Transient buffer-local mode that intercepts any key to resume greader.
@@ -1549,13 +1547,13 @@ else."
     (greader-queue-read)))
 
 ;; this is the keymap for greader-queue-mode.
-(defvar-keymap greader-queue-mode-map
-  :doc "greader-queue-mode map."
-  "C-r RET" #'greader-queue-add-element
-  "C-r SPC" #'greader-queue-read
-  "C-r <left>" #'greader-queue-backward
-  "C-r <right>" #'greader-queue-forward
-  "C-r ." #'greader-queue-stop)
+(defvar greader-queue-mode-map (make-sparse-keymap)
+  "Keymap for `greader-queue-mode'.")
+(define-key greader-queue-mode-map (kbd "C-r RET")    #'greader-queue-add-element)
+(define-key greader-queue-mode-map (kbd "C-r SPC")    #'greader-queue-read)
+(define-key greader-queue-mode-map (kbd "C-r <left>")  #'greader-queue-backward)
+(define-key greader-queue-mode-map (kbd "C-r <right>") #'greader-queue-forward)
+(define-key greader-queue-mode-map (kbd "C-r .")      #'greader-queue-stop)
 (defvar-local greader-greader-mode-was-active nil
   "This variable becomes t if `greader-mode' is active when
 `greader-queue-mode' is enabled.
@@ -1887,6 +1885,81 @@ to the next sentence, or when you stop the reading."
   'greader-tired-mode "0.16")
 (define-obsolete-function-alias 'greader-toggle-auto-tired-mode
   'greader-auto-tired-mode "0.16")
+
+(defcustom greader-move-default-seconds 30
+  "Default number of seconds used by time-based cursor movement commands."
+  :type 'number)
+
+(defcustom greader-move-default-minutes 1
+  "Default number of minutes used by time-based cursor movement commands."
+  :type 'number)
+
+(defun greader-move-by-time (time)
+  "Move point by TIME seconds, using the backend reading rate.
+TIME is in seconds; positive values move forward, negative values move backward.
+The number of words to skip is computed as: rate * abs(TIME) / 60, where
+rate is the backend WPM value returned by `greader-get-rate'.
+After the word-level skip, point is snapped to the nearest sentence boundary
+via `greader-forward-sentence' or `greader-backward-sentence', UNLESS the
+sentence at the destination is longer (in words) than the computed offset:
+in that case point stays at the raw word-level position, since snapping
+would move it further than the requested skip.
+Movement stops at buffer boundaries."
+  (let* ((rate (greader-get-rate))
+         (words (round (* rate (/ (abs time) 60.0)))))
+    (forward-word (if (>= time 0) words (- words)))
+    (let* ((sentence (greader-get-sentence))
+           (sentence-words (when sentence
+                             (length (split-string sentence nil t)))))
+      (when (or (null sentence-words)
+                (<= sentence-words words))
+        (if (>= time 0)
+            (greader-forward-sentence)
+          (greader-backward-sentence))))))
+
+(defun greader--seek (time)
+  "Stop reading, move point by TIME seconds, and resume.
+Calls `greader-move-by-time' to compute the word offset from the WPM rate."
+  (greader-tts-stop)
+  (greader-move-by-time time)
+  (greader-set-register)
+  (greader-read))
+
+(defun greader-move-by-seconds-backward (&optional seconds)
+  "Move point backward by SECONDS seconds and resume reading.
+Word count is derived from the backend WPM rate via `greader-move-by-time'.
+If SECONDS is omitted, use `greader-move-default-seconds'.
+With a numeric prefix argument, skip that many seconds instead."
+  (interactive "P")
+  (greader--seek (- (if seconds (prefix-numeric-value seconds)
+                      greader-move-default-seconds))))
+
+(defun greader-move-by-minutes-backward (&optional minutes)
+  "Move point backward by MINUTES minutes and resume reading.
+Word count is derived from the backend WPM rate via `greader-move-by-time'.
+If MINUTES is omitted, use `greader-move-default-minutes'.
+With a numeric prefix argument, skip that many minutes instead."
+  (interactive "P")
+  (greader--seek (* -60 (if minutes (prefix-numeric-value minutes)
+                           greader-move-default-minutes))))
+
+(defun greader-move-by-seconds-forward (&optional seconds)
+  "Move point forward by SECONDS seconds and resume reading.
+Word count is derived from the backend WPM rate via `greader-move-by-time'.
+If SECONDS is omitted, use `greader-move-default-seconds'.
+With a numeric prefix argument, skip that many seconds instead."
+  (interactive "P")
+  (greader--seek (if seconds (prefix-numeric-value seconds)
+                   greader-move-default-seconds)))
+
+(defun greader-move-by-minutes-forward (&optional minutes)
+  "Move point forward by MINUTES minutes and resume reading.
+Word count is derived from the backend WPM rate via `greader-move-by-time'.
+If MINUTES is omitted, use `greader-move-default-minutes'.
+With a numeric prefix argument, skip that many minutes instead."
+  (interactive "P")
+  (greader--seek (* 60 (if minutes (prefix-numeric-value minutes)
+                          greader-move-default-minutes))))
 
 (provide 'greader)
 ;;; greader.el ends here
